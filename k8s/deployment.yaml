@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: entropy-backend
+  namespace: entropy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: entropy-backend
+  template:
+    metadata:
+      labels:
+        app: entropy-backend
+    spec:
+      containers:
+        - name: backend
+          image: your-ecr-repo/entropy-backend:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: REDIS_URL
+              value: "redis://your-elasticache-endpoint:6379"
+            - name: PORT
+              value: "8080"
+            - name: AWS_REGION
+              value: "us-east-1"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: entropy-backend-svc
+  namespace: entropy
+spec:
+  selector:
+    app: entropy-backend
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: LoadBalancer
