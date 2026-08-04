@@ -1,0 +1,56 @@
+variable "project" {
+  type = string
+}
+
+resource "aws_s3_bucket" "snapshots" {
+  bucket = "${var.project}-snapshots-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "snapshots" {
+  bucket = aws_s3_bucket.snapshots.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "snapshots" {
+  bucket                  = aws_s3_bucket.snapshots.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "snapshots" {
+  bucket = aws_s3_bucket.snapshots.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "snapshots" {
+  bucket = aws_s3_bucket.snapshots.id
+  rule {
+    id     = "expire-30d"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = 30
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+  }
+}
+
+data "aws_caller_identity" "current" {}
+
+output "bucket_name" {
+  value = aws_s3_bucket.snapshots.bucket
+}
+
+output "bucket_arn" {
+  value = aws_s3_bucket.snapshots.arn
+}
