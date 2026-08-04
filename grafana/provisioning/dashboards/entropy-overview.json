@@ -1,0 +1,56 @@
+{
+  "uid": "entropy-overview",
+  "title": "Entropy Overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Entropy Error Rate (%)",
+      "id": 1,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "entropy_error_rate_percent",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "options": {
+        "legend": { "showLegend": true }
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Session Manager Logs",
+      "id": 2,
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{service=\"session-manager\"}",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "options": {
+        "showCommonLabels": false,
+        "prettifyLogMessage": false
+      }
+    }
+  ],
+  "templating": { "list": [] },
+  "time": { "from": "now-15m", "to": "now" },
+  "annotations": { "list": [] },
+  "links": []
+}
+
