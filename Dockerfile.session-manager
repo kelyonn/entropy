@@ -1,0 +1,16 @@
+FROM golang:1.26-alpine AS builder
+WORKDIR /app
+COPY pkg/go.mod pkg/go.sum ./pkg/
+COPY services/session-manager/go.mod services/session-manager/go.sum ./services/session-manager/
+WORKDIR /app/services/session-manager
+RUN go mod download
+COPY pkg/ /app/pkg/
+COPY services/session-manager/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -o session-manager ./main.go
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates wget
+WORKDIR /app
+COPY --from=builder /app/services/session-manager/session-manager .
+EXPOSE 8080
+CMD ["./session-manager"]

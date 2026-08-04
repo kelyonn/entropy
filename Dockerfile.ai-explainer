@@ -1,0 +1,16 @@
+FROM golang:1.26-alpine AS builder
+WORKDIR /app
+COPY pkg/go.mod pkg/go.sum ./pkg/
+COPY services/ai-explainer/go.mod services/ai-explainer/go.sum ./services/ai-explainer/
+WORKDIR /app/services/ai-explainer
+RUN go mod download
+COPY pkg/ /app/pkg/
+COPY services/ai-explainer/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -o ai-explainer ./main.go
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates wget
+WORKDIR /app
+COPY --from=builder /app/services/ai-explainer/ai-explainer .
+EXPOSE 8082
+CMD ["./ai-explainer"]

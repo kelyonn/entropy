@@ -1,0 +1,18 @@
+FROM golang:1.26-alpine AS builder
+RUN apk add --no-cache clang llvm libbpf-dev linux-headers
+WORKDIR /app
+COPY pkg/go.mod pkg/go.sum ./pkg/
+COPY services/ebpf-monitor/go.mod services/ebpf-monitor/go.sum ./services/ebpf-monitor/
+WORKDIR /app/services/ebpf-monitor
+RUN go mod download
+COPY pkg/ /app/pkg/
+COPY services/ebpf-monitor/ .
+RUN go generate ./...
+RUN CGO_ENABLED=0 GOOS=linux go build -o ebpf-monitor .
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates wget
+WORKDIR /app
+COPY --from=builder /app/services/ebpf-monitor/ebpf-monitor .
+EXPOSE 8083
+CMD ["./ebpf-monitor"]
