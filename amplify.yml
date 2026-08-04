@@ -1,0 +1,25 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - cd frontend
+        - npm ci
+    build:
+      commands:
+        - |
+          cat > .env.production <<EOF
+          VITE_API_URL=${API_URL}
+          VITE_WS_URL=${WS_URL}
+          VITE_COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
+          VITE_COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
+          VITE_COGNITO_REGION=${COGNITO_REGION:-us-east-1}
+          EOF
+        - npm run build
+  artifacts:
+    baseDirectory: frontend/dist
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - frontend/node_modules/**/*

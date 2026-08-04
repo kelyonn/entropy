@@ -1,0 +1,559 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: entropy
+  labels:
+    app.kubernetes.io/part-of: entropy
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: session-manager
+  namespace: entropy
+  annotations:
+    eks.amazonaws.com/role-arn: ${SESSION_MANAGER_ROLE_ARN}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-explainer
+  namespace: entropy
+  annotations:
+    eks.amazonaws.com/role-arn: ${AI_EXPLAINER_ROLE_ARN}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-manager
+  namespace: entropy
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: session-manager
+  template:
+    metadata:
+      labels:
+        app: session-manager
+    spec:
+      serviceAccountName: session-manager
+      terminationGracePeriodSeconds: 20
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: session-manager
+      containers:
+        - name: session-manager
+          image: ${SESSION_MANAGER_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: entropy-secrets
+                  key: redis_url
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: entropy-secrets
+                  key: database_url
+            - name: AIRLOCK_URL
+              value: http://airlock:8081
+            - name: AI_EXPLAINER_URL
+              value: http://ai-explainer:8082
+            - name: PORT
+              value: "8080"
+            - name: MAX_SESSIONS
+              value: "100"
+            - name: AWS_REGION
+              value: ${AWS_REGION}
+            - name: S3_REGION
+              value: ${AWS_REGION}
+            - name: S3_BUCKET
+              value: ${S3_BUCKET}
+            - name: COGNITO_REGION
+              value: ${AWS_REGION}
+            - name: COGNITO_USER_POOL_ID
+              value: ${COGNITO_USER_POOL_ID}
+            - name: COGNITO_CLIENT_ID
+              value: ${COGNITO_CLIENT_ID}
+            - name: CLOUDWATCH_NAMESPACE
+              value: Entropy/Production
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: session-manager
+  namespace: entropy
+spec:
+  selector:
+    app: session-manager
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airlock
+  namespace: entropy
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: airlock
+  template:
+    metadata:
+      labels:
+        app: airlock
+    spec:
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: airlock
+      containers:
+        - name: airlock
+          image: ${AIRLOCK_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: entropy-secrets
+                  key: redis_url
+            - name: PORT
+              value: "8081"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airlock
+  namespace: entropy
+spec:
+  selector:
+    app: airlock
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-explainer
+  namespace: entropy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-explainer
+  template:
+    metadata:
+      labels:
+        app: ai-explainer
+    spec:
+      serviceAccountName: ai-explainer
+      terminationGracePeriodSeconds: 20
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: ai-explainer
+      containers:
+        - name: ai-explainer
+          image: ${AI_EXPLAINER_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8082
+          env:
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: entropy-secrets
+                  key: redis_url
+            - name: PORT
+              value: "8082"
+            - name: AWS_REGION
+              value: ${AWS_REGION}
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-explainer
+  namespace: entropy
+spec:
+  selector:
+    app: ai-explainer
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-monitor
+  namespace: entropy
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-monitor
+  template:
+    metadata:
+      labels:
+        app: ebpf-monitor
+    spec:
+      hostPID: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: ebpf-monitor
+          image: ${EBPF_MONITOR_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8083
+          env:
+            - name: PORT
+              value: "8083"
+            - name: SESSION_MANAGER_URL
+              value: http://session-manager:8080
+            - name: SIMULATOR_MODE
+              value: "false"
+            - name: HOST_PROC
+              value: /host/proc
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: bpf
+              mountPath: /sys/fs/bpf
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+      volumes:
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: session-manager
+  namespace: entropy
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: session-manager
+  minReplicas: 2
+  maxReplicas: 10
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: airlock
+  namespace: entropy
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: airlock
+  minReplicas: 2
+  maxReplicas: 10
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: session-manager
+  namespace: entropy
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: session-manager
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: entropy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: session-manager-ingress
+  namespace: entropy
+spec:
+  podSelector:
+    matchLabels:
+      app: session-manager
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: airlock-ingress
+  namespace: entropy
+spec:
+  podSelector:
+    matchLabels:
+      app: airlock
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: session-manager
+      ports:
+        - protocol: TCP
+          port: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-explainer-ingress
+  namespace: entropy
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-explainer
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: session-manager
+      ports:
+        - protocol: TCP
+          port: 8082
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ebpf-monitor-health
+  namespace: entropy
+spec:
+  podSelector:
+    matchLabels:
+      app: ebpf-monitor
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 8083
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: entropy
+  namespace: entropy
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERTIFICATE_ARN}
+    alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600
+spec:
+  ingressClassName: alb
+  rules:
+    - host: ${API_HOST}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: session-manager
+                port:
+                  number: 8080
