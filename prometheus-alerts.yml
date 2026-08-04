@@ -1,0 +1,21 @@
+groups:
+  - name: entropy-alerts
+    rules:
+      - alert: EntropyHighErrorRate
+        expr: entropy_error_rate_percent > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Entropy error rate is elevated
+          description: The measured error rate (percent) is above the configured threshold.
+
+      - alert: EntropyHighAILatency
+        expr: entropy_ai_explanation_latency_ms > 5000
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Entropy AI explanation latency is elevated
+          description: The AI explanation latency (ms) is above the configured threshold.
+

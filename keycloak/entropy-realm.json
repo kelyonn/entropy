@@ -1,0 +1,37 @@
+{
+  "realm": "entropy",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "entropy-app",
+      "name": "Entropy Frontend",
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["*"],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "user@example.com",
+      "enabled": true,
+      "email": "user@example.com",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "entropy123",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}
+
