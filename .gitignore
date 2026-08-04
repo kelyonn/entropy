@@ -1,0 +1,23 @@
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+*.log
+.env
+.env.local
+*.tar.gz
+data/
+.gocache/
+.gomodcache/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Go build artifacts
+services/ebpf-monitor/bpf/*.o
+services/ebpf-monitor/ebpf-monitor
+services/airlock/airlock
+services/session-manager/session-manager
+services/ai-explainer/ai-explainer
