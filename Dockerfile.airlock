@@ -1,0 +1,16 @@
+FROM golang:1.26-alpine AS builder
+WORKDIR /app
+COPY pkg/go.mod pkg/go.sum ./pkg/
+COPY services/airlock/go.mod services/airlock/go.sum ./services/airlock/
+WORKDIR /app/services/airlock
+RUN go mod download
+COPY pkg/ /app/pkg/
+COPY services/airlock/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -o airlock ./main.go
+
+FROM alpine:3.20
+RUN apk add --no-cache docker-cli ca-certificates wget
+WORKDIR /app
+COPY --from=builder /app/services/airlock/airlock .
+EXPOSE 8081
+CMD ["./airlock"]

@@ -1,0 +1,13 @@
+# Override for Linux hosts that can run real eBPF probes.
+# Usage:
+#   EBPF_SIMULATOR_MODE=false EBPF_PRIVILEGED=true \
+#     docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+#
+# See docs/linux-ebpf.md.
+
+services:
+  ebpf-monitor:
+    privileged: true
+    environment:
+      - SIMULATOR_MODE=false
+      - HOST_PROC=/host/proc

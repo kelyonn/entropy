@@ -1,0 +1,253 @@
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: entropy
+      POSTGRES_PASSWORD: entropy
+      POSTGRES_DB: entropy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U entropy -d entropy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb --ignore-existing local/entropy-snapshots;
+      mc ilm rule add --expire-days 30 local/entropy-snapshots || true;
+      "
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.0
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8087:8080"
+    volumes:
+      - ./keycloak/entropy-realm.json:/opt/keycloak/data/import/entropy-realm.json:ro
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollamadata:/root/.ollama
+
+  airlock:
+    build:
+      context: .
+      dockerfile: Dockerfile.airlock
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=8081
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  ai-explainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai-explainer
+    environment:
+      - PORT=8082
+      - REDIS_URL=redis://redis:6379
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  session-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.session-manager
+    ports:
+      # Host 8082 avoids common local 8080 conflicts; Vite proxies here.
+      - "8082:8080"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=8080
+      - AIRLOCK_URL=http://airlock:8081
+      - AI_EXPLAINER_URL=http://ai-explainer:8082
+      - MAX_SESSIONS=${MAX_SESSIONS:-100}
+      - IDLE_TIMEOUT_SECONDS=${IDLE_TIMEOUT_SECONDS:-}
+      - MAX_SESSION_SECONDS=${MAX_SESSION_SECONDS:-}
+      - SESSION_SWEEP_SECONDS=${SESSION_SWEEP_SECONDS:-30}
+      - DATABASE_URL=postgres://entropy:entropy@postgres:5432/entropy?sslmode=disable
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=entropy-snapshots
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
+      - S3_REGION=us-east-1
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-http://127.0.0.1:8087/realms/entropy}
+      - OIDC_JWKS_URL=${OIDC_JWKS_URL:-http://keycloak:8080/realms/entropy/protocol/openid-connect/certs}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=${OLLAMA_MODEL:-llama3}
+    volumes:
+      - snapshotdata:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      airlock:
+        condition: service_healthy
+      ai-explainer:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  ebpf-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.ebpf-monitor
+    environment:
+      - PORT=8083
+      - SESSION_MANAGER_URL=http://session-manager:8080
+      - SIMULATOR_MODE=${EBPF_SIMULATOR_MODE:-true}
+      - HOST_PROC=/host/proc
+    privileged: ${EBPF_PRIVILEGED:-false}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys/fs/bpf:/sys/fs/bpf
+    depends_on:
+      session-manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8083/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_WS_URL: ${VITE_WS_URL:-}
+        VITE_OIDC_URL: ${VITE_OIDC_URL:-http://127.0.0.1:8087}
+        VITE_OIDC_REALM: ${VITE_OIDC_REALM:-entropy}
+        VITE_OIDC_CLIENT_ID: ${VITE_OIDC_CLIENT_ID:-entropy-app}
+    ports:
+      - "3000:80"
+    depends_on:
+      session-manager:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      session-manager:
+        condition: service_healthy
+
+  loki:
+    image: grafana/loki:latest
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:latest
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-config.yaml:/etc/promtail/config.yml:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - loki
+
+  # Optional public exposure. Requires CLOUDFLARE_TUNNEL_TOKEN.
+  # docker compose --profile tunnel up -d cloudflared
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      frontend:
+        condition: service_started
+      keycloak:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:
+  snapshotdata:
+  ollamadata:
