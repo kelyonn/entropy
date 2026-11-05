@@ -37,6 +37,8 @@ const shellRC = shellStateDir + "/rc"
 // connection and is idempotent.
 const installShellRC = `mkdir -p ` + shellStateDir + ` && cat > ` + shellRC + ` <<'ENTROPY_RC'
 ` + shellPrologue + `ENTROPY_RC
+cat > ` + shellStateDir + `/ptyrc <<'ENTROPY_PTYRC'
+` + ptyRC + `ENTROPY_PTYRC
 `
 
 func wrapUserCommand(cmd string) string {

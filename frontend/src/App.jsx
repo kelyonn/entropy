@@ -15,6 +15,8 @@ import { currentOIDCUser, signOutFromOIDC, oidcConfigured } from './auth';
 const API_URL = import.meta.env.VITE_API_URL || '';
 const ONBOARD_KEY = 'entropy_onboarded_v1';
 const SESSION_LIMIT_SECONDS = 60 * 60;
+const WS_BASE =
+  import.meta.env.VITE_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 
 function safeGet(key) {
   try {
@@ -215,6 +217,18 @@ export default function App() {
 
   const elapsed = useClock(startedAt);
 
+  // The interactive terminal attaches once the sandbox reports ready (the
+  // shell message arrives after the container is up), because the control
+  // channel owns the sandbox.
+  const [ptyUrl, setPtyUrl] = useState(null);
+  useEffect(() => {
+    if (!connected || !startedAt || !sessionId || ptyUrl) return;
+    const params = new URLSearchParams({ session_id: sessionId });
+    if (user?.token) params.set('access_token', user.token);
+    else params.set('guest', '1');
+    setPtyUrl(`${WS_BASE}/pty?${params.toString()}`);
+  }, [connected, startedAt, sessionId, user, ptyUrl]);
+
   useEffect(() => {
     if (lastError) showToast(lastError.message, 'warn');
   }, [lastError, showToast]);
@@ -341,6 +355,7 @@ export default function App() {
               busy={busy}
               cwd={cwd}
               restoredHistory={restoredHistory}
+              ptyUrl={ptyUrl}
             />
           </div>
           <div className="max-h-56 flex flex-col">

@@ -76,6 +76,7 @@ type commandResult struct {
 type activeWebSocket struct {
 	terminate func(reason string)
 	kernel    chan pkgebpf.KernelEvent
+	conn      *conn
 }
 
 func (h *WebSocketHandler) NotifyKernelEvent(event pkgebpf.KernelEvent) {
@@ -149,6 +150,14 @@ type conn struct {
 	// repeated mistake does not spend the AI budget twice.
 	explainedMu sync.Mutex
 	explained   map[string]bool
+
+	// ptyMu guards the attached interactive terminal and demo waiters.
+	ptyMu          sync.Mutex
+	pty            *ptyBridge
+	cmdWaiter      chan commandResult
+	pendingDisplay string
+
+	replayMu sync.Mutex
 
 	// aiMu serializes explanation streams so tokens never interleave.
 	aiMu sync.Mutex
@@ -396,11 +405,7 @@ func (c *conn) persistSummary(reason string, deliver bool) {
 func (c *conn) runCommand(q queuedCommand) commandResult {
 	h := c.h
 	cmd := q.command
-	c.commandsRun.Add(1)
-	_ = h.manager.Touch(c.ctx, c.sessionID)
-	h.rdb.LPush(c.ctx, fmt.Sprintf("history:%s", c.sessionID), cmd)
-	h.rdb.LTrim(c.ctx, fmt.Sprintf("history:%s", c.sessionID), 0, 99)
-	h.rdb.Incr(c.ctx, "metric:total_commands")
+	c.accountCommand(cmd)
 
 	display := cmd
 	if q.display != "" {
@@ -442,43 +447,15 @@ func (c *conn) runCommand(q queuedCommand) commandResult {
 			exitCode = 126
 		}
 	}
-	duration := time.Since(started)
-
-	c.send(ws.TypeOutput, map[string]interface{}{
-		"stdout": "", "stderr": "", "exitCode": exitCode, "completed": true,
-		"command": display, "durationMs": duration.Milliseconds(), "cwd": promptPath(c.currentCwd()),
-	})
-	_ = h.store.InsertCommand(c.ctx, c.sessionID, cmd, exitCode, stdout.String(), stderr.String())
-
 	output := stderr.String()
 	if strings.TrimSpace(output) == "" {
 		output = stdout.String()
 	}
-	class := classifyExit(exitCode)
-	if c.interrupted.Load() && (exitCode == 130 || exitCode == 143) {
-		class = exitFailure
-	}
-	if q.display == "" {
-		c.recordTrail(cmd, exitCode, output)
-		c.recordLabCommand(cmd)
-	}
-	switch class {
-	case exitCrash:
-		c.handleCrash(display, tail(output, 4000), exitCode, inferEvent(exitCode, output))
-	case exitFailure:
-		c.rememberFailure(display, tail(output, 4000), exitCode)
-		c.send(ws.TypeVisualization, map[string]interface{}{"status": "error"})
-		// Requirement 8.1: every non-zero exit is explained automatically.
-		// Two exceptions: a command the learner stopped with Ctrl+C, and an
-		// identical failure that was already explained this session.
-		if !c.interrupted.Load() && c.firstAutoExplain(display, exitCode) {
-			go c.streamAI(display, tail(output, 4000), exitCode, false, "", c.aiContext(), "error", true)
-		}
-	default:
-		c.send(ws.TypeVisualization, map[string]interface{}{"status": "healthy"})
-	}
-	go c.sendStats()
-	c.afterCommand()
+	c.finishCommand(finishedCommand{
+		command: cmd, display: display, exitCode: exitCode, output: output,
+		stdout: stdout.String(), stderr: stderr.String(), duration: time.Since(started),
+		cwd: c.currentCwd(), learner: q.display == "",
+	})
 	return commandResult{command: cmd, stdout: stdout.String(), stderr: stderr.String(), exitCode: exitCode}
 }
 
@@ -559,7 +536,7 @@ func (h *WebSocketHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	kernelEvents := make(chan pkgebpf.KernelEvent, 20)
 	kernelDone := make(chan struct{})
 	defer close(kernelDone)
-	active := &activeWebSocket{kernel: kernelEvents, terminate: func(reason string) {
+	active := &activeWebSocket{kernel: kernelEvents, conn: c, terminate: func(reason string) {
 		serverTerminated.Store(true)
 		persistSummary(reason, true)
 		c.writeMu.Lock()

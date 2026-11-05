@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -29,6 +29,7 @@ export default function Terminal({
   busy,
   cwd,
   restoredHistory,
+  ptyUrl,
 }) {
   const hostRef = useRef(null);
   const termRef = useRef(null);
@@ -48,6 +49,12 @@ export default function Terminal({
   });
   const props = useRef({ onCommand, onInterrupt, enabled });
   props.current = { onCommand, onInterrupt, enabled };
+  // mode is 'line' (local line editor, one exec per command) or 'pty' (raw
+  // bytes to an interactive shell). 'exited' waits for Enter to restart.
+  const modeRef = useRef('line');
+  const ptyRef = useRef(null);
+  const lineApi = useRef(null);
+  const [mode, setMode] = useState('line');
 
   useEffect(() => {
     state.current.cwd = cwd || '~';
@@ -185,6 +192,15 @@ export default function Terminal({
     };
 
     const onData = (data) => {
+      if (modeRef.current === 'pty') {
+        const sock = ptyRef.current;
+        if (sock?.readyState === WebSocket.OPEN) sock.send(new TextEncoder().encode(data));
+        return;
+      }
+      if (modeRef.current === 'exited') {
+        if (data === '\r') lineApi.current?.restartPTY();
+        return;
+      }
       if (s.running) {
         // Typeahead: keep editing the next command silently, and run it when
         // the current one finishes, the way a local shell does.
@@ -310,6 +326,12 @@ export default function Terminal({
     const disposable = term.onData(onData);
 
     const unsubscribe = subscribe((event) => {
+      // In interactive mode the shell draws prompts and output itself; only
+      // output from line-mode execs (rare fallbacks) is written here.
+      if (modeRef.current !== 'line') {
+        if (event.type === 'output' && !event.notice) term.write(event.text);
+        return;
+      }
       switch (event.type) {
         case 'output':
           leavePrompt();
@@ -360,6 +382,7 @@ export default function Terminal({
     });
 
     showPrompt();
+    lineApi.current = { showPrompt, term, fit };
 
     // Fit on the next frame and only when the host is visible; fitting a
     // detached or zero-size terminal throws inside xterm's renderer.
@@ -374,6 +397,10 @@ export default function Terminal({
           fit.fit();
         } catch {
           /* renderer not ready */
+        }
+        const sock = ptyRef.current;
+        if (modeRef.current === 'pty' && sock?.readyState === WebSocket.OPEN) {
+          sock.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
         }
       });
     };
@@ -392,6 +419,85 @@ export default function Terminal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscribe]);
 
+  // Interactive terminal: connect once the session is live. On failure the
+  // line editor stays in charge, so the terminal always works.
+  useEffect(() => {
+    if (!ptyUrl || !termRef.current) return undefined;
+    const term = termRef.current;
+    let closedByUs = false;
+    let attempts = 0;
+    let timer = 0;
+
+    const setModeBoth = (m) => {
+      modeRef.current = m;
+      setMode(m);
+      // Full-screen programs move the cursor with bare line feeds; only the
+      // line editor wants LF translated to CRLF.
+      term.options.convertEol = m === 'line';
+    };
+
+    const connect = () => {
+      const sep = ptyUrl.includes('?') ? '&' : '?';
+      const sock = new WebSocket(`${ptyUrl}${sep}cols=${term.cols}&rows=${term.rows}`);
+      sock.binaryType = 'arraybuffer';
+      ptyRef.current = sock;
+      let opened = false;
+      sock.onopen = () => {
+        opened = true;
+        attempts = 0;
+        if (modeRef.current === 'line') {
+          // Hand the screen to the shell: clear the local prompt line.
+          term.write('\r\x1b[2K');
+        }
+        setModeBoth('pty');
+        term.focus();
+      };
+      sock.onmessage = (e) => {
+        if (typeof e.data === 'string') {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'exit') {
+              setModeBoth('exited');
+              term.write(`\r\n\x1b[2mshell exited (${msg.code}). Press Enter for a new shell.\x1b[0m\r\n`);
+            }
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        term.write(new Uint8Array(e.data));
+      };
+      sock.onclose = () => {
+        if (closedByUs || modeRef.current === 'exited') return;
+        if (attempts >= 4) {
+          if (modeRef.current !== 'line') {
+            setModeBoth('line');
+            term.write('\r\n\x1b[33minteractive terminal unavailable; using line mode\x1b[0m\r\n');
+            lineApi.current?.showPrompt();
+          }
+          return;
+        }
+        attempts += 1;
+        timer = setTimeout(connect, 1000 * attempts);
+      };
+    };
+
+    if (lineApi.current) {
+      lineApi.current.restartPTY = () => {
+        term.write('\r\n');
+        setModeBoth('line');
+        connect();
+      };
+    }
+    connect();
+    return () => {
+      closedByUs = true;
+      clearTimeout(timer);
+      ptyRef.current?.close();
+      ptyRef.current = null;
+    };
+  }, [ptyUrl]);
+
   return (
     <div className="term-well h-full flex flex-col">
       <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[#1c222b]">
@@ -405,8 +511,11 @@ export default function Terminal({
           <span className="text-xs font-mono text-[#8b949e] truncate">root@entropy:{cwd || '~'}</span>
         </div>
         <div className="flex items-center gap-3 text-xs font-mono">
+          <span className="text-[#8b949e]" title={mode === 'pty' ? 'Interactive shell: vim, top, and job control work' : 'Line mode: one command at a time'}>
+            {mode === 'pty' ? 'interactive' : 'line mode'}
+          </span>
           <span className="text-[#8b949e]">{!enabled ? 'offline' : busy ? 'running' : 'ready'}</span>
-          {busy && enabled && (
+          {busy && enabled && mode === 'line' && (
             <button
               type="button"
               onClick={() => {
