@@ -213,6 +213,11 @@ func (c *conn) sendStats() {
 		payload["memoryBytes"] = stats.MemoryBytes
 		payload["memoryLimit"] = stats.MemoryLimit
 	}
+	if c.stackActive() {
+		if t, ok := c.readTraffic(); ok {
+			payload["traffic"] = t
+		}
+	}
 	c.send(ws.TypeVisualization, payload)
 }
 
@@ -624,10 +629,18 @@ func (h *WebSocketHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	defer close(statsDone)
 	go func() {
 		c.sendStats()
+		tick := 0
 		for {
 			select {
 			case <-statsTicker.C:
 				c.sendStats()
+				// Re-check objectives every other tick so time-based goals
+				// (SLO windows) complete and regressions surface without the
+				// learner typing another command.
+				tick++
+				if tick%2 == 0 {
+					c.afterCommand()
+				}
 			case <-statsDone:
 				return
 			}

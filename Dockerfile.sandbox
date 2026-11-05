@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       procps psmisc lsof iproute2 strace file less vim-tiny \
-      python3-minimal curl ca-certificates bc jq tree \
+      python3 curl ca-certificates bc jq tree \
  && rm -rf /var/lib/apt/lists/*
 RUN printf 'Entropy sandbox. Isolated: no network, 256 MB memory, 0.5 CPU, 100 processes.\n' > /etc/motd
 WORKDIR /root

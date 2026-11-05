@@ -52,7 +52,10 @@ type Lab struct {
 	Hints      []string    `json:"-"`
 	HintCount  int         `json:"hintCount"`
 	// Starter labs are the recommended first stop for new learners.
-	Starter bool   `json:"starter,omitempty"`
+	Starter bool `json:"starter,omitempty"`
+	// Stack labs run the production stack (proxy, app, db, load generator)
+	// and report live traffic. They need python3 in the sandbox image.
+	Stack   bool   `json:"stack,omitempty"`
 	Debrief string `json:"-"`
 	// Setup runs silently before an incident starts. Demo runs visibly in the
 	// learner's terminal.
@@ -514,12 +517,6 @@ wait; echo "throttled for: $(awk '/nr_throttled/ {print $2}' /sys/fs/cgroup/cpu.
 	},
 }
 
-func init() {
-	for i := range catalog {
-		catalog[i].HintCount = len(catalog[i].Hints)
-	}
-}
-
 // All returns the catalog in display order.
 func All() []Lab {
 	out := make([]Lab, len(catalog))
@@ -554,7 +551,7 @@ const CleanupScript = `for p in /proc/[0-9]*; do
   [ "${p#/proc/}" = "$$" ] && continue
   [ "${p#/proc/}" = 1 ] && continue
   mapfile -d '' args < "$p/cmdline" 2>/dev/null || continue
-  if [[ "${args[*]}" =~ (^lesson-sleeper|opt/(metrics/agent|ledger/ledgerd|spool/spoold|reaper/reaper-svc|cache/launcher|cache/warmer|legacy/httpd)|^spool-worker|^\[kworker/u4:2\]|^reaper-svc|^web-serve) ]]; then
+  if [[ "${args[*]}" =~ (opt/stack/stack\.py|^lesson-sleeper|opt/(metrics/agent|ledger/ledgerd|spool/spoold|reaper/reaper-svc|cache/launcher|cache/warmer|legacy/httpd)|^spool-worker|^\[kworker/u4:2\]|^reaper-svc|^web-serve) ]]; then
     kill -9 "${p#/proc/}" 2>/dev/null
   fi
 done

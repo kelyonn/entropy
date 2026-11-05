@@ -47,6 +47,26 @@ mempct() {
   case "$max" in max|'') max=268435456 ;; esac
   echo $(( cur * 100 / max ))
 }
+confval() {
+  sed -n "s/^$2=//p" "/etc/stack/$1.conf" | tail -n 1
+}
+slo_window() {
+  local n=$1 last now
+  last=$(tail -n 1 /var/log/stack/traffic.log 2>/dev/null | cut -d' ' -f1)
+  now=$(date +%s)
+  [ -n "$last" ] && [ $(( now - last )) -le 6 ] || return 1
+  tail -n "$n" /var/log/stack/traffic.log
+}
+slo_errors_below() {
+  local w
+  w=$(slo_window "${2:-8}") || return 1
+  printf '%s\n' "$w" | awk -v p="$1" -v n="${2:-8}" '{ t += $2; e += $4; c++ } END { if (c < n / 2 || t == 0) exit 1; exit !(e * 100 / t < p) }'
+}
+slo_p95_below() {
+  local w
+  w=$(slo_window "${2:-8}") || return 1
+  printf '%s\n' "$w" | awk -v m="$1" '{ if ($6 > mx) mx = $6; c++ } END { if (c == 0) exit 1; exit !(mx < m) }'
+}
 as_user() {
   local u=$1; shift
   if command -v runuser >/dev/null 2>&1; then

@@ -1,0 +1,48 @@
+#!/bin/bash
+# stackctl: manage the Entropy production stack.
+#   stackctl status                  show every service
+#   stackctl start|stop|restart SVC  control one service (db app proxy loadgen)
+#   stackctl logs SVC                last 20 log lines
+SERVICES="db app proxy loadgen"
+mkdir -p /run/stack /var/log/stack
+
+pid_file() { printf '/run/stack/%s.pid' "${1:?service name required}"; }
+pid_of() { cat "$(pid_file "$1")" 2>/dev/null; }
+running() { local p; p=$(pid_of "$1") && [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+known() { case " $SERVICES " in *" $1 "*) return 0 ;; esac; echo "unknown service: $1 (expected: $SERVICES)" >&2; return 2; }
+
+start() {
+  known "$1" || return 2
+  if running "$1"; then echo "$1 already running (pid $(pid_of "$1"))"; return 0; fi
+  setsid python3 /opt/stack/stack.py "$1" >>"/var/log/stack/$1.out" 2>&1 </dev/null &
+  echo $! >"$(pid_file "$1")"
+  sleep 0.6
+  if running "$1"; then
+    echo "$1 started (pid $(pid_of "$1"))"
+  else
+    echo "$1 failed to start. Last lines of /var/log/stack/$1.out:"
+    tail -n 3 "/var/log/stack/$1.out" 2>/dev/null
+    : >"$(pid_file "$1")"
+    return 1
+  fi
+}
+
+stop() {
+  known "$1" || return 2
+  if running "$1"; then kill "$(pid_of "$1")"; sleep 0.3; echo "$1 stopped"; else echo "$1 not running"; fi
+  : >"$(pid_file "$1")"
+}
+
+status() {
+  for s in $SERVICES; do
+    if running "$s"; then printf '%-8s running  pid %s\n' "$s" "$(pid_of "$s")"; else printf '%-8s stopped\n' "$s"; fi
+  done
+}
+
+case "$1" in
+  status) status ;;
+  start|stop) [ -n "$2" ] || { echo "usage: stackctl $1 SERVICE" >&2; exit 2; }; "$1" "$2" ;;
+  restart) [ -n "$2" ] || { echo "usage: stackctl restart SERVICE" >&2; exit 2; }; stop "$2" >/dev/null; start "$2" ;;
+  logs) known "$2" || exit 2; tail -n 20 "/var/log/stack/$2.log" 2>/dev/null ;;
+  *) sed -n '2,6p' "$0" | sed 's/^# //'; exit 2 ;;
+esac

@@ -147,6 +147,7 @@ export function useWebSocket(sessionId, authToken = '') {
               cpu: payload.cpu ?? 0,
               memory: payload.memory ?? 0,
               pids: payload.pids ?? null,
+              traffic: payload.traffic ?? null,
             };
             setSamples((prev) => [...prev.slice(-(MAX_SAMPLES - 1)), sample]);
             setLatest({
@@ -155,6 +156,7 @@ export function useWebSocket(sessionId, authToken = '') {
               pids: payload.pids ?? null,
               memoryBytes: payload.memoryBytes ?? null,
               memoryLimit: payload.memoryLimit ?? null,
+              traffic: payload.traffic ?? null,
             });
           }
           break;

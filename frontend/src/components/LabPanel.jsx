@@ -41,6 +41,14 @@ function useElapsed(startedAt, running) {
 
 const DIFFICULTY_ORDER = { Beginner: 0, Intermediate: 1, Advanced: 2 };
 
+// Incidents are grouped: starters, single-machine incidents, then the
+// production stack.
+const GROUP_LABELS = ['Start here if you are new to Linux', 'Incidents', 'Production stack: proxy, app, database, live traffic'];
+function groupOf(lab) {
+  if (lab.starter) return 0;
+  return lab.stack ? 2 : 1;
+}
+
 export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAction, onDismiss, onAskAI, disabled }) {
   const [catalog, setCatalog] = useState([]);
   const [progress, setProgress] = useState(readLocal);
@@ -74,8 +82,7 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
         .filter((l) => l.kind === tab)
         .sort(
           (a, b) =>
-            Number(!!b.starter) - Number(!!a.starter) ||
-            (DIFFICULTY_ORDER[a.difficulty] ?? 9) - (DIFFICULTY_ORDER[b.difficulty] ?? 9),
+            groupOf(a) - groupOf(b) || (DIFFICULTY_ORDER[a.difficulty] ?? 9) - (DIFFICULTY_ORDER[b.difficulty] ?? 9),
         ),
     [catalog, tab],
   );
@@ -137,12 +144,12 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
       <ul className="px-2 py-2 overflow-y-auto min-h-0">
         {grouped.map((l, index) => {
           const done = progress[l.id];
-          const firstOfGroup = index === 0 || !!grouped[index - 1].starter !== !!l.starter;
+          const firstOfGroup = index === 0 || groupOf(grouped[index - 1]) !== groupOf(l);
           return (
             <li key={l.id}>
               {firstOfGroup && tab === 'incident' && (
                 <div className="px-2 pt-2 pb-1 text-[11px] font-medium text-ink-muted">
-                  {l.starter ? 'Start here if you are new to Linux' : 'Incidents'}
+                  {GROUP_LABELS[groupOf(l)]}
                 </div>
               )}
               <button
