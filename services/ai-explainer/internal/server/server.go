@@ -57,14 +57,16 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 	if !s.limiter.Allow(r.Context(), req.SessionID) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
-		s.emitToken(w, flusher, "Rate limit reached. Try again in 1 hour.", false, false)
+		if req.Auto && req.Question == "" {
+			s.emitToken(w, flusher, s.provider.FallbackForCommand(req.Command, req.ExitCode)+budgetNote, false, true)
+		} else {
+			s.emitToken(w, flusher, "Rate limit reached. Try again in 1 hour.", false, false)
+		}
 		s.emitToken(w, flusher, "", true, false)
 		return
 	}
 
-	if ctx := strings.TrimSpace(req.Context); ctx != "" {
-		req.Stderr = "[Context] " + truncateContext(ctx) + "\n[Output]\n" + req.Stderr
-	}
+	req.Stderr = composeOutput(req.Stderr, req.Context)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -85,12 +87,28 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 	_ = streamFn(r.Context(), req.Command, req.Stderr, req.ExitCode, emit)
 }
 
-// truncateContext keeps grounding short so error output still fits in the
-// provider prompt budget.
-func truncateContext(ctx string) string {
-	const max = 600
-	if len(ctx) <= max {
-		return ctx
+const budgetNote = "\n\n_This session has used its AI explanations for the hour, so this is a prepared explanation._"
+
+// composeOutput joins the command output and optional learner context into
+// the block the prompts call "Error output". The output keeps its tail (where
+// errors usually are) and the context is clearly labeled so the model does
+// not mistake it for program output.
+func composeOutput(output, context string) string {
+	const maxOutput = 1400
+	const maxContext = 1700
+	output = strings.TrimSpace(output)
+	if len(output) > maxOutput {
+		output = "..." + output[len(output)-maxOutput:]
 	}
-	return ctx[:max]
+	context = strings.TrimSpace(context)
+	if context == "" {
+		return output
+	}
+	if len(context) > maxContext {
+		context = context[:maxContext]
+	}
+	if output == "" {
+		output = "(no output)"
+	}
+	return output + "\n\n--- Learner context (not program output) ---\n" + context
 }

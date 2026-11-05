@@ -12,16 +12,18 @@ const LOOP = [
   {
     step: '03',
     title: 'Understand why',
-    body: 'Crashes come with a root-cause explanation. Incidents check your fix automatically and end with a debrief.',
+    body: 'Every failure comes with a root-cause explanation that looks at what you ran. Incidents check your fix as you go and tell you when you undo it.',
   },
 ];
 
+const EXAMPLES = ['rm -rf /', 'kill -9 1', ':(){ :|:& };:'];
+
 const SAMPLE = [
+  ['Start here', 'First steps: processes and signals'],
   ['Processes', 'The process that is not a kernel thread'],
   ['Storage', 'Disk full, but nothing is there'],
   ['Processes', 'Process table exhaustion'],
   ['Permissions', 'Permission denied on deploy'],
-  ['Networking', 'Address already in use'],
 ];
 
 export default function Onboarding({ onStart, error }) {
@@ -46,6 +48,18 @@ export default function Onboarding({ onStart, error }) {
               </li>
             ))}
           </ol>
+
+          <div className="mt-8">
+            <div className="text-xs font-medium text-ink-muted mb-2">Try commands you would never run at work</div>
+            <div className="flex flex-wrap gap-2">
+              {EXAMPLES.map((cmd) => (
+                <code key={cmd} className="font-mono text-xs bg-muted text-ink px-2 py-1 rounded-[4px] border border-line">
+                  {cmd}
+                </code>
+              ))}
+            </div>
+            <p className="mt-3 text-sm font-medium text-ink">All commands run in isolation.</p>
+          </div>
 
           {error && <p className="mt-6 text-sm text-danger">{error}</p>}
 
@@ -73,7 +87,7 @@ export default function Onboarding({ onStart, error }) {
             <div className="text-[#8b949e]">12K   /var/log</div>
             <div className="text-[#d4a017]">where did 57 MB go?</div>
           </div>
-          <div className="mt-6 text-xs font-medium text-ink-muted">Incident labs include</div>
+          <div className="mt-6 text-xs font-medium text-ink-muted">Labs include</div>
           <ul className="mt-2 divide-y divide-line">
             {SAMPLE.map(([cat, title]) => (
               <li key={title} className="py-2">

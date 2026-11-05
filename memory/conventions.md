@@ -24,7 +24,8 @@ Legacy fields (`session_id`, `command`, top-level `data`) are accepted for compa
 - `output` completion carries `command`, `durationMs`, and prompt `cwd`.
 - `shell` (server): `cwd`, `startedAt`, restored `history`.
 - `interrupt` (client): SIGINT to the running command's process group.
-- `ai_explain` (client): explain the last failed command. Only crash-class exits (signals, 124, 99) auto-explain.
+- `ai_explain` (client): explain the last failed command again. Every non-zero exit auto-explains (Req 8.1) except Ctrl+C and identical repeats.
+- `lab` (server) includes `alerts`: objectives that were met and regressed, with a message.
 
 ## HTTP (Session Manager)
 - `GET /api/session/new`
@@ -45,6 +46,8 @@ Slate Studio tokens in `docs/ui.md` and `frontend/src/index.css`.
 ## Labs
 - Catalog: `services/session-manager/labs/catalog.go`. Scripts target stock ubuntu:22.04
   (bash, coreutils, util-linux, perl-base). `/tmp` and `/var/log` are noexec tmpfs.
+- Objectives use `Check` (sandbox state) or `Ran` (regex over learner commands since start), never both.
+  Add `Regressed` text for any objective a learner can undo.
 - Checks match processes with bracket patterns (`'[o]pt/x'`) so the check never matches itself.
 - Every new incident needs a reference fix in `labs/smoke_test.go` and must pass
   `ENTROPY_LAB_SMOKE=1 go test ./labs/ -run Docker`.

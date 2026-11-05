@@ -26,5 +26,8 @@ type ExplainerProvider interface {
 		question string,
 		onToken func(token string, done bool, fallback bool),
 	) error
-}
 
+	// FallbackForCommand is a prepared explanation used when the model is
+	// unavailable or the session's budget is spent.
+	FallbackForCommand(command string, exitCode int) string
+}

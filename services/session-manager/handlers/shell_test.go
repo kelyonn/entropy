@@ -54,3 +54,25 @@ func TestClassifyExit(t *testing.T) {
 		}
 	}
 }
+
+func TestTrailAndAutoExplainDedupe(t *testing.T) {
+	c := &conn{}
+	for i := 0; i < 15; i++ {
+		c.recordTrail("echo step", 0, "")
+	}
+	c.recordTrail("kill 42", 1, "bash: kill: (42) - No such process")
+	if n := len(c.trail); n != 12 {
+		t.Fatalf("trail length %d, want 12", n)
+	}
+	got := c.recentTrail(2)
+	if !strings.Contains(got, "$ kill 42  (exit 1)") || !strings.Contains(got, "No such process") {
+		t.Fatalf("trail missing last command:\n%s", got)
+	}
+	ctx := c.aiContext()
+	if !strings.Contains(ctx, "Point out a specific mistake") || !strings.Contains(ctx, "kill 42") {
+		t.Fatalf("ai context missing trail:\n%s", ctx)
+	}
+	if !c.firstAutoExplain("ls x", 2) || c.firstAutoExplain("ls x", 2) || !c.firstAutoExplain("ls x", 1) {
+		t.Fatal("auto-explain dedupe wrong")
+	}
+}

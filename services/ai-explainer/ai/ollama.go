@@ -36,7 +36,7 @@ func NewOllamaClient(rdb *redis.Client, logger *zap.Logger, ollamaURL, modelID s
 		modelID:    modelID,
 		rdb:        rdb,
 		logger:     logger,
-		breaker:   resilience.NewCircuitBreaker(3, 30*time.Second),
+		breaker:    resilience.NewCircuitBreaker(3, 30*time.Second),
 	}
 }
 
@@ -99,7 +99,7 @@ Structure:
 3. What went wrong (two short sentences max)
 4. What to do next (one sentence)
 
-No emoji. Under 150 words.`, command, exitCode, truncate(stderr, 1000))
+No emoji. Under 150 words.`, command, exitCode, truncate(stderr, maxPromptOutput))
 	return o.streamPrompt(ctx, command, stderr, exitCode, prompt, onToken)
 }
 
@@ -114,7 +114,7 @@ Error output: %s
 Learner question: %s
 
 Answer the question directly in plain language. If you use a technical term, define it in parentheses.
-No emoji. Under 200 words.`, command, exitCode, truncate(stderr, 1000), question)
+No emoji. Under 200 words.`, command, exitCode, truncate(stderr, maxPromptOutput), question)
 
 	return o.streamPrompt(ctx, command+":q:"+question, stderr, exitCode, prompt, onToken)
 }
@@ -226,8 +226,7 @@ func (o *OllamaClient) streamPrompt(
 }
 
 func (o *OllamaClient) cacheKey(command, stderr string, exitCode int) string {
-	normalized := strings.ToLower(strings.TrimSpace(command)) + "::" + truncate(stderr, 50) + fmt.Sprintf("::%d", exitCode)
+	normalized := strings.ToLower(strings.TrimSpace(command)) + "::" + truncate(stderr, maxPromptOutput) + fmt.Sprintf("::%d", exitCode)
 	hash := sha256.Sum256([]byte(normalized))
 	return "ai:cache:" + hex.EncodeToString(hash[:])
 }
-

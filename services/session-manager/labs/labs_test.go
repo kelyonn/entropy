@@ -2,6 +2,7 @@ package labs
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -26,8 +27,13 @@ func TestCatalogIntegrity(t *testing.T) {
 			}
 			ids := map[string]bool{}
 			for _, o := range l.Objectives {
-				if o.ID == "" || o.Text == "" || o.Check == "" {
-					t.Fatalf("incident %q has incomplete objective", l.ID)
+				if o.ID == "" || o.Text == "" || (o.Check == "") == (o.Ran == "") {
+					t.Fatalf("incident %q objective %q needs exactly one of Check or Ran", l.ID, o.ID)
+				}
+				if o.Ran != "" {
+					if _, err := regexp.Compile(o.Ran); err != nil {
+						t.Fatalf("incident %q objective %q has bad regex: %v", l.ID, o.ID, err)
+					}
 				}
 				if ids[o.ID] {
 					t.Fatalf("incident %q duplicates objective %q", l.ID, o.ID)
@@ -113,5 +119,61 @@ func TestProgressKeepsBestRun(t *testing.T) {
 	}
 	if c := all["zombie-horde"]; c.HintsUsed != 0 || c.Seconds != 400 {
 		t.Fatalf("best run not kept: %+v", c)
+	}
+}
+
+func TestEvaluateRanObjectives(t *testing.T) {
+	l, _ := Get("first-steps-processes")
+	cases := map[string]map[string]bool{
+		"ps aux | grep lesson": {"list": true},
+		"ls /proc":             {"list": true},
+		"cat /proc/meminfo":    {"memory": true},
+		"free -m":              {"memory": true},
+		"echo freedom":         {},
+		"pstree -p":            {"list": true},
+		"top -b -n 1 | head":   {"list": true, "memory": true},
+		"ps -eo pid,rss,args":  {"list": true, "memory": true},
+		"psql -c 1":            {},
+	}
+	for cmd, want := range cases {
+		got := Evaluate(l, "", []string{cmd})
+		for _, id := range []string{"list", "memory"} {
+			if got[id] != want[id] {
+				t.Fatalf("Evaluate(%q)[%s] = %v, want %v", cmd, id, got[id], want[id])
+			}
+		}
+	}
+	f, _ := Get("first-steps-files")
+	for cmd, want := range map[string]bool{"./hello.sh": true, "/srv/notes/hello.sh": true, "cat hello.sh": false, "cd /srv/notes && ./hello.sh": true} {
+		if got := Evaluate(f, "", []string{cmd})["run"]; got != want {
+			t.Fatalf("run objective for %q = %v, want %v", cmd, got, want)
+		}
+	}
+	if HasChecks(Lab{Objectives: []Objective{{ID: "a", Ran: "x"}}}) {
+		t.Fatal("HasChecks true for command-only lab")
+	}
+}
+
+func TestRegressions(t *testing.T) {
+	l, _ := Get("deleted-log")
+	prev := map[string]bool{"space": false, "service": true}
+	next := map[string]bool{"space": true, "service": false}
+	got := Regressions(l, prev, next)
+	if len(got) != 1 || got[0].ObjectiveID != "service" || !strings.Contains(got[0].Message, "keep it running") {
+		t.Fatalf("unexpected regressions %+v", got)
+	}
+	if len(Regressions(l, next, next)) != 0 {
+		t.Fatal("regression reported without a change")
+	}
+	generic := Lab{Objectives: []Objective{{ID: "x", Text: "Thing works", Check: "true"}}}
+	if r := Regressions(generic, map[string]bool{"x": true}, map[string]bool{}); len(r) != 1 || !strings.Contains(r[0].Message, "Thing works") {
+		t.Fatalf("generic regression message missing: %+v", r)
+	}
+}
+
+func TestStarterLabsComeFirst(t *testing.T) {
+	all := All()
+	if !all[0].Starter || !all[1].Starter {
+		t.Fatal("starter labs should lead the catalog")
 	}
 }

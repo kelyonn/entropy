@@ -118,3 +118,10 @@ Append-only. Newest entries at the bottom. One block per working session.
 - Stats now report PIDs and use a two-sample CPU read (one-shot read was always 0).
 - Frontend rebuilt around the lab loop; fixed dropped output chunks from batched state.
 - Browser-verified locally (services run natively against Docker); full Compose not run.
+
+## 2026-11-05 — P13 follow-up: starters, mistake feedback, spec gaps
+- Restored Req 2.2/2.3 onboarding text and Req 8.1 auto-explain on every non-zero exit.
+- Added two starter labs with command-based objectives; all 9 incidents pass the Docker smoke test.
+- Regression alerts tell learners what they undid; AI context now includes objective status and recent commands.
+- AI Explainer: context is a labeled prompt section, cache key covers the full input, over-budget auto requests get prepared explanations.
+- Verified with a request-logging fake model; real Ollama output not checked.

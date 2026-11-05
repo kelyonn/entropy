@@ -85,3 +85,10 @@ hostname and real probe attach on a remote VM are not claimed as passed here.
 - Keycloak redirect URIs / `VITE_OIDC_*` for those hostnames
 - Linux VM eBPF smoke with `docker-compose.linux.yml` (`docs/linux-ebpf.md`)
 - Optional: VM load test and public penetration pass
+
+## P13 update (2026-11-05)
+
+- Req 2: onboarding shows `rm -rf /`, `kill -9 1`, the fork bomb, and "All commands run in isolation." Two starter labs added.
+- Req 8.1: every non-zero exit triggers an explanation automatically. Exceptions: exits caused by the learner pressing Ctrl+C, and an identical command+exit already explained in the session. When the 10-per-hour budget is spent, automatic explanations fall back to prepared text instead of a rate-limit notice.
+- Req 8.6: context now includes the active lab, objective status, and the learner's recent commands with output.
+- Req 9: scenarios are lab demos (CPU, fork bomb, OOM, kill init) plus nine verified incidents.
