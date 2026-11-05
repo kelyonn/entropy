@@ -20,6 +20,10 @@ import (
 
 const modelID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
+// maxPromptOutput bounds the output-plus-context block sent to the model and
+// used for the cache key, so different errors never share a cached answer.
+const maxPromptOutput = 3200
+
 var genericFallbacks = map[int]string{
 	1: `**What happened:** The command failed with a general error.
 
@@ -180,7 +184,7 @@ Structure:
 3. What went wrong (two short sentences max)
 4. What to do next (one sentence)
 
-No emoji. Under 150 words.`, command, exitCode, truncate(stderr, 1000))
+No emoji. Under 150 words.`, command, exitCode, truncate(stderr, maxPromptOutput))
 	return b.streamPrompt(ctx, command, stderr, exitCode, prompt, onToken)
 }
 
@@ -195,7 +199,7 @@ Error output: %s
 Learner question: %s
 
 Answer the question directly in plain language. If you use a technical term, define it in parentheses.
-No emoji. Under 200 words.`, command, exitCode, truncate(stderr, 1000), question)
+No emoji. Under 200 words.`, command, exitCode, truncate(stderr, maxPromptOutput), question)
 	return b.streamPrompt(ctx, command+":q:"+question, stderr, exitCode, prompt, onToken)
 }
 
@@ -212,7 +216,7 @@ Use this exact structure with markdown headings:
 **What actually happened:** (2-3 short sentences, define any jargon in parentheses)
 **How to fix it:** (1-2 practical steps)
 
-No emoji. Under 250 words.`, command, exitCode, truncate(stderr, 1000))
+No emoji. Under 250 words.`, command, exitCode, truncate(stderr, maxPromptOutput))
 }
 
 func (b *BedrockClient) streamPrompt(ctx context.Context, command, stderr string, exitCode int, prompt string, onToken func(token string, done bool, fallback bool)) error {
@@ -296,7 +300,7 @@ func (b *BedrockClient) streamPrompt(ctx context.Context, command, stderr string
 }
 
 func (b *BedrockClient) cacheKey(command, stderr string, exitCode int) string {
-	normalized := strings.ToLower(strings.TrimSpace(command)) + "::" + truncate(stderr, 50) + fmt.Sprintf("::%d", exitCode)
+	normalized := strings.ToLower(strings.TrimSpace(command)) + "::" + truncate(stderr, maxPromptOutput) + fmt.Sprintf("::%d", exitCode)
 	hash := sha256.Sum256([]byte(normalized))
 	return "ai:cache:" + hex.EncodeToString(hash[:])
 }

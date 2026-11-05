@@ -140,6 +140,16 @@ type conn struct {
 	labMu sync.Mutex
 	lab   *labRun
 
+	// trail is the learner's recent commands, shared with the AI so it can
+	// point at what they actually did.
+	trailMu sync.Mutex
+	trail   []trailEntry
+
+	// explained remembers command+exit pairs already auto-explained so a
+	// repeated mistake does not spend the AI budget twice.
+	explainedMu sync.Mutex
+	explained   map[string]bool
+
 	// aiMu serializes explanation streams so tokens never interleave.
 	aiMu sync.Mutex
 
@@ -199,16 +209,95 @@ func (c *conn) sendStats() {
 
 func (c *conn) aiContext() string {
 	c.labMu.Lock()
-	defer c.labMu.Unlock()
+	var b strings.Builder
 	if c.lab != nil {
-		return c.lab.lab.AIContext()
+		b.WriteString(c.lab.lab.AIContext())
+		if alerts := c.lab.alerts; len(alerts) > 0 {
+			b.WriteString("\nThings the learner fixed and then undid:")
+			for _, a := range alerts {
+				b.WriteString("\n- " + a.Message)
+			}
+		}
+		if len(c.lab.lab.Objectives) > 0 {
+			b.WriteString("\nObjective status:")
+			for _, o := range c.lab.lab.Objectives {
+				mark := "not met"
+				if c.lab.status[o.ID] {
+					mark = "met"
+				}
+				b.WriteString("\n- " + o.Text + ": " + mark)
+			}
+		}
 	}
-	return ""
+	c.labMu.Unlock()
+	if trail := c.recentTrail(6); trail != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("Learner's recent commands, oldest first. Point out a specific mistake if one of these caused the problem:\n")
+		b.WriteString(trail)
+	}
+	return b.String()
+}
+
+type trailEntry struct {
+	command  string
+	exitCode int
+	output   string
+}
+
+func (c *conn) recordTrail(command string, exitCode int, output string) {
+	c.trailMu.Lock()
+	defer c.trailMu.Unlock()
+	c.trail = append(c.trail, trailEntry{command: clip(command, 200), exitCode: exitCode, output: clip(tail(strings.TrimSpace(output), 160), 160)})
+	if len(c.trail) > 12 {
+		c.trail = c.trail[len(c.trail)-12:]
+	}
+}
+
+func (c *conn) recentTrail(n int) string {
+	c.trailMu.Lock()
+	defer c.trailMu.Unlock()
+	start := len(c.trail) - n
+	if start < 0 {
+		start = 0
+	}
+	var b strings.Builder
+	for _, e := range c.trail[start:] {
+		fmt.Fprintf(&b, "$ %s  (exit %d)\n", e.command, e.exitCode)
+		if e.output != "" {
+			b.WriteString("  " + strings.ReplaceAll(e.output, "\n", "\n  ") + "\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// firstAutoExplain reports whether this command+exit pair has not been
+// auto-explained yet in this session.
+func (c *conn) firstAutoExplain(command string, exitCode int) bool {
+	key := fmt.Sprintf("%d|%s", exitCode, strings.TrimSpace(command))
+	c.explainedMu.Lock()
+	defer c.explainedMu.Unlock()
+	if c.explained == nil {
+		c.explained = map[string]bool{}
+	}
+	if c.explained[key] {
+		return false
+	}
+	c.explained[key] = true
+	return true
+}
+
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // streamAI streams an explanation and restores the visualization to
 // afterStatus once the stream ends.
-func (c *conn) streamAI(command, output string, exitCode int, simpler bool, question, context, afterStatus string) {
+func (c *conn) streamAI(command, output string, exitCode int, simpler bool, question, context, afterStatus string, auto bool) {
 	h := c.h
 	c.aiMu.Lock()
 	defer c.aiMu.Unlock()
@@ -219,7 +308,7 @@ func (c *conn) streamAI(command, output string, exitCode int, simpler bool, ques
 	})
 	req := pkgai.ExplainRequest{
 		SessionID: c.sessionID, Command: command, Stderr: output,
-		ExitCode: exitCode, Simpler: simpler, Question: question, Context: context,
+		ExitCode: exitCode, Simpler: simpler, Question: question, Context: context, Auto: auto,
 	}
 	var explanation strings.Builder
 	started := time.Now()
@@ -281,7 +370,7 @@ func (c *conn) handleCrash(command, output string, exitCode int, event string) {
 	c.send(ws.TypeCrash, map[string]interface{}{
 		"data": crashSummary(output, exitCode), "exitCode": exitCode, "command": command, "event": event,
 	})
-	go c.streamAI(command, output, exitCode, false, "", c.aiContext(), "crashed")
+	go c.streamAI(command, output, exitCode, false, "", c.aiContext(), "crashed", true)
 }
 
 func (c *conn) persistSummary(reason string, deliver bool) {
@@ -369,12 +458,22 @@ func (c *conn) runCommand(q queuedCommand) commandResult {
 	if c.interrupted.Load() && (exitCode == 130 || exitCode == 143) {
 		class = exitFailure
 	}
+	if q.display == "" {
+		c.recordTrail(cmd, exitCode, output)
+		c.recordLabCommand(cmd)
+	}
 	switch class {
 	case exitCrash:
 		c.handleCrash(display, tail(output, 4000), exitCode, inferEvent(exitCode, output))
 	case exitFailure:
 		c.rememberFailure(display, tail(output, 4000), exitCode)
 		c.send(ws.TypeVisualization, map[string]interface{}{"status": "error"})
+		// Requirement 8.1: every non-zero exit is explained automatically.
+		// Two exceptions: a command the learner stopped with Ctrl+C, and an
+		// identical failure that was already explained this session.
+		if !c.interrupted.Load() && c.firstAutoExplain(display, exitCode) {
+			go c.streamAI(display, tail(output, 4000), exitCode, false, "", c.aiContext(), "error", true)
+		}
 	default:
 		c.send(ws.TypeVisualization, map[string]interface{}{"status": "healthy"})
 	}
@@ -632,7 +731,7 @@ func (h *WebSocketHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			if command == "" {
 				command = "(no failing command)"
 			}
-			go c.streamAI(command, lf.output, lf.exitCode, p.Simpler, q, c.aiContext(), "healthy")
+			go c.streamAI(command, lf.output, lf.exitCode, p.Simpler, q, c.aiContext(), "healthy", false)
 		case ws.TypeLab, ws.TypeScenario:
 			var p struct {
 				ID     string `json:"id"`

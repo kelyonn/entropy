@@ -11,6 +11,15 @@ import (
 // Reference fixes used only by the Docker smoke test. They prove that every
 // incident is solvable inside the sandbox constraints.
 var referenceFixes = map[string]string{
+	"first-steps-processes": `ps aux
+free -m
+cat /opt/lesson/.pid > /root/answer.txt
+kill "$(cat /opt/lesson/.pid)"`,
+	"first-steps-files": `df -h
+echo archive.bin > /root/answer.txt
+chmod +x /srv/notes/hello.sh
+/srv/notes/hello.sh
+mkdir -p /root/workspace && echo /root/workspace > /root/.entropy/cwd`,
 	"runaway-cpu": `for p in /proc/[0-9]*; do
   [ "${p#/proc/}" = "$$" ] && continue
   c=$(tr '\0' ' ' < $p/cmdline 2>/dev/null)
@@ -96,12 +105,15 @@ func TestIncidentLabsInDocker(t *testing.T) {
 			id := strings.TrimSpace(string(out))
 			defer exec.Command("docker", "rm", "-f", id).Run()
 
+			if _, code := dockerExec(t, id, "mkdir -p /root/.entropy"); code != 0 {
+				t.Fatal("state dir")
+			}
 			if out, code := dockerExec(t, id, l.Setup); code != 0 {
 				t.Fatalf("setup exit %d: %s", code, out)
 			}
 			time.Sleep(3 * time.Second)
 			out1, _ := dockerExec(t, id, CheckScript(l))
-			before := ParseCheckOutput(l, out1)
+			before := Evaluate(l, out1, nil)
 			if AllMet(l, before) {
 				t.Fatalf("objectives already met after setup: %v\n%s", before, out1)
 			}
@@ -113,7 +125,8 @@ func TestIncidentLabsInDocker(t *testing.T) {
 			}
 			time.Sleep(4 * time.Second)
 			out2, _ := dockerExec(t, id, CheckScript(l))
-			after := ParseCheckOutput(l, out2)
+			// Each line of the reference fix counts as a learner command.
+			after := Evaluate(l, out2, strings.Split(referenceFixes[l.ID], "\n"))
 			if !AllMet(l, after) {
 				t.Fatalf("reference fix did not satisfy objectives: %v\n%s", after, out2)
 			}

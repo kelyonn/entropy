@@ -3,6 +3,7 @@ package labs
 import (
 	"bufio"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -67,6 +68,9 @@ func CheckScript(l Lab) string {
 	var b strings.Builder
 	b.WriteString(checkPrelude)
 	for _, o := range l.Objectives {
+		if o.Check == "" {
+			continue
+		}
 		fmt.Fprintf(&b, "if ( %s ) >/dev/null 2>&1; then echo '%s%s'; else echo '%s%s'; fi\n",
 			o.Check, markerOK, o.ID, markerNo, o.ID)
 	}
@@ -98,6 +102,61 @@ func ParseCheckOutput(l Lab, out string) map[string]bool {
 		}
 	}
 	return result
+}
+
+// Evaluate combines sandbox check output with the learner's commands since
+// the lab started into one status per objective.
+func Evaluate(l Lab, checkOutput string, commands []string) map[string]bool {
+	status := ParseCheckOutput(l, checkOutput)
+	for _, o := range l.Objectives {
+		if o.Ran == "" {
+			continue
+		}
+		re, err := regexp.Compile(o.Ran)
+		if err != nil {
+			continue
+		}
+		for _, c := range commands {
+			if re.MatchString(c) {
+				status[o.ID] = true
+				break
+			}
+		}
+	}
+	return status
+}
+
+// HasChecks reports whether the lab needs a sandbox check run.
+func HasChecks(l Lab) bool {
+	for _, o := range l.Objectives {
+		if o.Check != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// Regression is a Check objective that was met and is failing again.
+type Regression struct {
+	ObjectiveID string `json:"objectiveId"`
+	Message     string `json:"message"`
+}
+
+// Regressions compares two evaluations and explains what the learner undid.
+// Command-based objectives never regress.
+func Regressions(l Lab, prev, next map[string]bool) []Regression {
+	var out []Regression
+	for _, o := range l.Objectives {
+		if o.Check == "" || !prev[o.ID] || next[o.ID] {
+			continue
+		}
+		msg := o.Regressed
+		if msg == "" {
+			msg = "\"" + o.Text + "\" was met and is failing again."
+		}
+		out = append(out, Regression{ObjectiveID: o.ID, Message: msg})
+	}
+	return out
 }
 
 // AllMet reports whether every objective passed.

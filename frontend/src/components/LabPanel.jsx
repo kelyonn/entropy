@@ -72,7 +72,11 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
     () =>
       catalog
         .filter((l) => l.kind === tab)
-        .sort((a, b) => (DIFFICULTY_ORDER[a.difficulty] ?? 9) - (DIFFICULTY_ORDER[b.difficulty] ?? 9)),
+        .sort(
+          (a, b) =>
+            Number(!!b.starter) - Number(!!a.starter) ||
+            (DIFFICULTY_ORDER[a.difficulty] ?? 9) - (DIFFICULTY_ORDER[b.difficulty] ?? 9),
+        ),
     [catalog, tab],
   );
   const incidentCount = catalog.filter((l) => l.kind === 'incident').length;
@@ -131,10 +135,16 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
       {loadError && <p className="px-4 py-3 text-xs text-danger">{loadError}</p>}
 
       <ul className="px-2 py-2 overflow-y-auto min-h-0">
-        {grouped.map((l) => {
+        {grouped.map((l, index) => {
           const done = progress[l.id];
+          const firstOfGroup = index === 0 || !!grouped[index - 1].starter !== !!l.starter;
           return (
             <li key={l.id}>
+              {firstOfGroup && tab === 'incident' && (
+                <div className="px-2 pt-2 pb-1 text-[11px] font-medium text-ink-muted">
+                  {l.starter ? 'Start here if you are new to Linux' : 'Incidents'}
+                </div>
+              )}
               <button
                 type="button"
                 disabled={disabled}
@@ -318,6 +328,19 @@ function Mission({ lab, onAction, onDismiss, onAskAI, disabled }) {
           </button>
           {showBriefing && <p className="mt-1 text-sm text-ink leading-relaxed">{lab.briefing}</p>}
         </div>
+
+        {isIncident && lab.alerts?.length > 0 && running && (
+          <div className="rounded-panel border border-line bg-muted px-3 py-2.5" role="status">
+            <div className="text-xs font-medium text-warning">Something you fixed broke again</div>
+            <ul className="mt-1 space-y-1">
+              {lab.alerts.map((a, i) => (
+                <li key={`${a.objectiveId}-${i}`} className="text-sm text-ink leading-relaxed">
+                  {a.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {isIncident && (
           <div>

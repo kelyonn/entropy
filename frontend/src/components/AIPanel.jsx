@@ -90,8 +90,8 @@ export default function AIPanel({
         <div ref={bodyRef} className="px-4 py-3 overflow-y-auto" style={{ maxHeight: '340px' }}>
           {!text && !isAnalyzing && (
             <div className="text-sm text-ink-muted space-y-1">
-              <p>Crashes (signals, OOM kills, timeouts) are explained automatically.</p>
-              <p>For ordinary failures, use Explain on the latest failed command, or ask anything below.</p>
+              <p>Every failed command is explained here automatically, using what you ran just before it.</p>
+              <p>During a lab, explanations point at your mistake without giving away the fix. Ask anything below.</p>
             </div>
           )}
           {text && (

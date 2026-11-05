@@ -27,6 +27,13 @@ type labRun struct {
 	state     string
 	checking  bool
 	cancel    context.CancelFunc
+	// commands are the learner's commands since the lab started, used by
+	// command-based objectives.
+	commands []string
+	// checked is true after the first evaluation, which sets the baseline
+	// for regression detection.
+	checked bool
+	alerts  []labs.Regression
 }
 
 type objectiveView struct {
@@ -58,6 +65,7 @@ func (r *labRun) view(message string) map[string]interface{} {
 		"objectives":     objectives,
 		"objectivesMet":  met,
 		"hints":          r.lab.Hints[:r.hintsUsed],
+		"starter":        r.lab.Starter,
 		"hintCount":      len(r.lab.Hints),
 		"hintsUsed":      r.hintsUsed,
 		"startedAt":      r.startedAt.UTC().Format(time.RFC3339),
@@ -66,6 +74,7 @@ func (r *labRun) view(message string) map[string]interface{} {
 	if r.state == labCompleted {
 		v["debrief"] = r.lab.Debrief
 	}
+	v["alerts"] = r.alerts
 	if message != "" {
 		v["message"] = message
 	}
@@ -174,7 +183,7 @@ func (c *conn) runDemo(ctx context.Context, run *labRun) {
 	if classifyExit(result.exitCode) != exitCrash {
 		output := result.stdout + result.stderr
 		go c.streamAI("[demo] "+run.lab.Title, tail(output, 3000), result.exitCode, false,
-			"Walk me through what this demo just showed.", run.lab.AIContext(), "healthy")
+			"Walk me through what this demo just showed.", run.lab.AIContext(), "healthy", true)
 	}
 }
 
@@ -203,7 +212,11 @@ func (c *conn) checkLab(explicit bool) {
 	run.checking = true
 	c.labMu.Unlock()
 
-	out, _, err := c.execQuiet(c.ctx, labs.CheckScript(run.lab))
+	var out string
+	var err error
+	if labs.HasChecks(run.lab) {
+		out, _, err = c.execQuiet(c.ctx, labs.CheckScript(run.lab))
+	}
 
 	c.labMu.Lock()
 	run.checking = false
@@ -218,13 +231,29 @@ func (c *conn) checkLab(explicit bool) {
 		}
 		return
 	}
-	run.status = labs.ParseCheckOutput(run.lab, out)
+	next := labs.Evaluate(run.lab, out, run.commands)
+	var regressions []labs.Regression
+	if run.checked {
+		regressions = labs.Regressions(run.lab, run.status, next)
+	}
+	run.checked = true
+	run.status = next
+	if len(regressions) > 0 {
+		run.alerts = append(run.alerts, regressions...)
+		if len(run.alerts) > 3 {
+			run.alerts = run.alerts[len(run.alerts)-3:]
+		}
+	}
 	completed := labs.AllMet(run.lab, run.status)
 	if completed {
 		run.state = labCompleted
 		c.lab = nil
 	}
 	c.labMu.Unlock()
+
+	for _, r := range regressions {
+		c.notice("\x1b[33m[lab] " + r.Message + "\x1b[0m")
+	}
 
 	if !completed {
 		msg := ""
@@ -304,4 +333,14 @@ func formatDuration(seconds int) string {
 		return fmt.Sprintf("%ds", seconds)
 	}
 	return fmt.Sprintf("%dm %02ds", seconds/60, seconds%60)
+}
+
+// recordLabCommand adds a learner command to the active incident so
+// command-based objectives can see it.
+func (c *conn) recordLabCommand(cmd string) {
+	c.labMu.Lock()
+	defer c.labMu.Unlock()
+	if c.lab != nil && c.lab.state == labActive && c.lab.lab.Kind == labs.KindIncident {
+		c.lab.commands = append(c.lab.commands, cmd)
+	}
 }

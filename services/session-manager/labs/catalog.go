@@ -21,12 +21,21 @@ const (
 	KindDemo     Kind = "demo"
 )
 
-// Objective is one verifiable goal. Check is a bash snippet that exits 0 when
-// the objective is met. Checks run with the helper prelude in checks.go.
+// Objective is one verifiable goal, met in one of two ways:
+//   - Check is a bash snippet that exits 0 when the sandbox is in the goal
+//     state. Checks run with the helper prelude in checks.go.
+//   - Ran is a regular expression matched against the commands the learner
+//     ran since the lab started. Orientation labs use it to confirm a tool
+//     was practiced, not just that a state was reached.
+//
+// Regressed is shown when a Check objective that was met starts failing
+// again, which is how the engine tells learners what they undid.
 type Objective struct {
-	ID    string `json:"id"`
-	Text  string `json:"text"`
-	Check string `json:"-"`
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	Check     string `json:"-"`
+	Ran       string `json:"-"`
+	Regressed string `json:"-"`
 }
 
 type Lab struct {
@@ -42,7 +51,9 @@ type Lab struct {
 	Objectives []Objective `json:"objectives"`
 	Hints      []string    `json:"-"`
 	HintCount  int         `json:"hintCount"`
-	Debrief    string      `json:"-"`
+	// Starter labs are the recommended first stop for new learners.
+	Starter bool   `json:"starter,omitempty"`
+	Debrief string `json:"-"`
 	// Setup runs silently before an incident starts. Demo runs visibly in the
 	// learner's terminal.
 	Setup string `json:"-"`
@@ -85,6 +96,78 @@ func daemon(cmd string) string {
 
 var catalog = []Lab{
 	{
+		ID:         "first-steps-processes",
+		Title:      "First steps: processes and signals",
+		Kind:       KindIncident,
+		Category:   "Start here",
+		Difficulty: "Beginner",
+		Minutes:    6,
+		Starter:    true,
+		Summary:    "Learn to list processes, read memory usage, find a PID, and stop a process with a signal.",
+		Briefing: "Every incident starts with the same questions: what is running, what is it using, and how do I stop it. " +
+			"A practice process called lesson-sleeper is running. Work through the objectives in any order. Useful commands: " +
+			"ps aux, cat /proc/meminfo, free -m, echo 123 > /root/answer.txt, kill <pid>.",
+		Concepts: []string{"ps", "PID", "/proc", "memory usage", "kill and signals"},
+		Objectives: []Objective{
+			{ID: "list", Text: "List the running processes", Ran: `(^|[\s;|&(])(ps|pgrep|pstree)(\s|$)|top\s+-b|ls\s+(-\S+\s+)*/proc\b`},
+			{ID: "memory", Text: "Check how much memory is in use", Ran: `(^|[\s;|&(])free(\s|$)|/proc/meminfo|memory\.(current|usage)|VmRSS|ps\s.*(rss|%mem)|top\s+-b`},
+			{ID: "answer", Text: "Write the PID of lesson-sleeper to /root/answer.txt", Check: `[ "$(tr -dc 0-9 < /root/answer.txt)" = "$(cat /opt/lesson/.pid)" ]`,
+				Regressed: "/root/answer.txt no longer holds the PID of lesson-sleeper."},
+			{ID: "stop", Text: "Stop lesson-sleeper with a signal", Check: `! alive '[l]esson-sleeper'`},
+		},
+		Hints: []string{
+			"`ps aux` lists every process with its PID in the second column. `ps aux | grep lesson` narrows it down.",
+			"`free -m` shows memory in megabytes. Inside a container, `cat /sys/fs/cgroup/memory.current` is the number the limit applies to.",
+			"Write the number with `echo <pid> > /root/answer.txt`, then `cat /root/answer.txt` to confirm.",
+			"`kill <pid>` sends SIGTERM, a polite request to exit. `kill -9 <pid>` sends SIGKILL, which cannot be ignored.",
+		},
+		Debrief: "ps reads the same /proc files you can read yourself; every process is a directory named after its PID. " +
+			"kill sends a signal: SIGTERM (15) asks a process to exit and lets it clean up, SIGKILL (9) removes it immediately. " +
+			"Reach for SIGTERM first. You will use these four moves in every incident that follows.",
+		Setup: `mkdir -p /opt/lesson
+setsid perl -e '$0 = "lesson-sleeper"; sleep 3600 while 1' >/dev/null 2>&1 </dev/null &
+echo $! > /opt/lesson/.pid
+sleep 0.5`,
+	},
+	{
+		ID:         "first-steps-files",
+		Title:      "First steps: files, disks, and permissions",
+		Kind:       KindIncident,
+		Category:   "Start here",
+		Difficulty: "Beginner",
+		Minutes:    8,
+		Starter:    true,
+		Summary:    "Check free space, find the largest file, fix an execute permission, and see that cd persists.",
+		Briefing: "Storage and permission problems are the most common failures you will meet. The folder /srv/notes holds a few " +
+			"files, one of them much larger than the rest, and a script that refuses to run. Useful commands: df -h, du -sh, " +
+			"ls -lhS, chmod +x, mkdir, cd.",
+		Concepts: []string{"df", "du", "ls -l", "chmod", "working directory"},
+		Objectives: []Objective{
+			{ID: "df", Text: "Check free space with df", Ran: `(^|[\s;|&(])df(\s|$)`},
+			{ID: "largest", Text: "Write the name of the largest file in /srv/notes to /root/answer.txt", Check: `grep -q 'archive\.bin' /root/answer.txt`},
+			{ID: "exec", Text: "Make /srv/notes/hello.sh executable", Check: `[ -x /srv/notes/hello.sh ]`,
+				Regressed: "/srv/notes/hello.sh lost its execute permission."},
+			{ID: "run", Text: "Run hello.sh", Ran: `(^|[\s;|&(])(\./|/srv/notes/)hello\.sh`},
+			{ID: "workspace", Text: "Create /root/workspace and cd into it", Check: `[ "$(cat /root/.entropy/cwd 2>/dev/null)" = /root/workspace ]`},
+		},
+		Hints: []string{
+			"`df -h` shows each filesystem's size and free space. `du -sh /srv/notes/*` shows how much each file uses.",
+			"`ls -lhS /srv/notes` sorts by size, largest first. Then `echo archive.bin > /root/answer.txt` style answers work.",
+			"`ls -l` shows rw-r--r-- for hello.sh: no x, so it cannot run. `chmod +x /srv/notes/hello.sh` adds it.",
+			"Run a script by path: `/srv/notes/hello.sh`, or `cd /srv/notes` then `./hello.sh`. For the last step: `mkdir -p /root/workspace && cd /root/workspace`.",
+		},
+		Debrief: "df reports space per filesystem, du adds up what files use; when they disagree, look for deleted files still held open " +
+			"(that is the next storage incident). Permissions are three sets of rwx for owner, group, and others; a script needs x to run. " +
+			"Your working directory persisted between commands, just as it would in a local shell.",
+		Setup: `mkdir -p /srv/notes
+printf 'standup at 10\n' > /srv/notes/todo.txt
+printf 'rotate keys monthly\n' > /srv/notes/ops.md
+dd if=/dev/zero of=/srv/notes/archive.bin bs=1M count=12 2>/dev/null
+printf '#!/bin/bash\necho "hello from $(hostname), running as $(whoami)"\n' > /srv/notes/hello.sh
+chmod 644 /srv/notes/hello.sh
+rm -f /root/answer.txt`,
+	},
+	{
 		ID:         "runaway-cpu",
 		Title:      "The process that is not a kernel thread",
 		Kind:       KindIncident,
@@ -96,7 +179,8 @@ var catalog = []Lab{
 			"Nobody deployed anything. Find what is burning CPU, stop it, and make sure it stays stopped.",
 		Concepts: []string{"/proc", "process tree", "PPID", "signals", "process masquerading"},
 		Objectives: []Objective{
-			{ID: "hog", Text: "Stop the process that is consuming the CPU", Check: `! alive '[k]worker/u4:2'`},
+			{ID: "hog", Text: "Stop the process that is consuming the CPU", Check: `! alive '[k]worker/u4:2'`,
+				Regressed: "The CPU hog is running again. Something restarted it after you stopped it; look at its parent process."},
 			{ID: "supervisor", Text: "Stop whatever keeps restarting it", Check: `! alive '[o]pt/metrics/agent'`},
 		},
 		Hints: []string{
@@ -139,7 +223,8 @@ chmod +x /opt/metrics/agent
 		Concepts: []string{"df vs du", "inodes and open file descriptors", "/proc/<pid>/fd", "log rotation"},
 		Objectives: []Objective{
 			{ID: "space", Text: "Bring /var/log usage below 50 percent", Check: `[ "$(usepct /var/log)" -lt 50 ]`},
-			{ID: "service", Text: "Keep the ledger service running", Check: `alive '[o]pt/ledger/ledgerd'`},
+			{ID: "service", Text: "Keep the ledger service running", Check: `alive '[o]pt/ledger/ledgerd'`,
+				Regressed: "The ledger service stopped. Killing the writer frees the space, but the goal was to keep it running: truncate the open file instead."},
 		},
 		Hints: []string{
 			"Compare `df -h /var/log` with `du -sh /var/log`. When they disagree, space is held by something du cannot see.",
@@ -175,8 +260,10 @@ chmod +x /opt/ledger/ledgerd
 		Concepts: []string{"PID cgroup limit", "process groups", "kill -- -PGID", "orphans and reparenting"},
 		Objectives: []Objective{
 			{ID: "spawner", Text: "Stop the spooler that creates workers", Check: `! alive '[o]pt/spool/spoold'`},
-			{ID: "workers", Text: "Clear every leftover spool-worker", Check: `! alive '^[s]pool-worker'`},
-			{ID: "headroom", Text: "Bring the process count below 30", Check: `[ "$(proccount)" -lt 30 ]`},
+			{ID: "workers", Text: "Clear every leftover spool-worker", Check: `! alive '^[s]pool-worker'`,
+				Regressed: "spool-workers are back. The spooler replaces them while it runs; stop it, or signal the whole process group."},
+			{ID: "headroom", Text: "Bring the process count below 30", Check: `[ "$(proccount)" -lt 30 ]`,
+				Regressed: "The process count climbed again. Something is still creating processes."},
 		},
 		Hints: []string{
 			"Count processes with `ls -d /proc/[0-9]* | wc -l`. The cgroup limit is 100.",
@@ -253,7 +340,8 @@ chmod +x /opt/reaper/reaper-svc
 		Objectives: []Objective{
 			{ID: "read", Text: "User app can read /srv/app/config.env", Check: `as_user app test -r /srv/app/config.env`},
 			{ID: "start", Text: "User app can run /srv/app/bin/start successfully", Check: `as_user app /srv/app/bin/start >/dev/null 2>&1`},
-			{ID: "safe", Text: "The config is not readable or writable by everyone", Check: `[ "$(( 0$(stat -c %a /srv/app/config.env) & 06 ))" -eq 0 ]`},
+			{ID: "safe", Text: "The config is not readable or writable by everyone", Check: `[ "$(( 0$(stat -c %a /srv/app/config.env) & 06 ))" -eq 0 ]`,
+				Regressed: "The config is now open to every user. That fixes access but exposes the API token. Grant access through the app group instead (chgrp app, chmod 640)."},
 		},
 		Hints: []string{
 			"Reproduce the failure as the service user: `runuser -u app -- /srv/app/bin/start`.",
@@ -290,7 +378,8 @@ chmod 755 /srv/app /srv/app/bin`,
 			"Free the memory and stop the cache warmer from coming back.",
 		Concepts: []string{"cgroup memory limit", "RSS", "/proc/<pid>/status", "OOM killer", "respawn loops"},
 		Objectives: []Objective{
-			{ID: "memory", Text: "Bring memory usage below 40 percent of the limit", Check: `[ "$(mempct)" -lt 40 ]`},
+			{ID: "memory", Text: "Bring memory usage below 40 percent of the limit", Check: `[ "$(mempct)" -lt 40 ]`,
+				Regressed: "Memory climbed again. The launcher restarted the cache warmer."},
 			{ID: "launcher", Text: "Stop the cache warmer from restarting", Check: `! alive '[o]pt/cache/launcher' || [ ! -x /opt/cache/warmer ]`},
 		},
 		Hints: []string{
@@ -333,7 +422,8 @@ chmod +x /opt/cache/warmer /opt/cache/launcher
 		Concepts: []string{"listening sockets", "/proc/net/tcp", "socket inodes", "ss and lsof"},
 		Objectives: []Objective{
 			{ID: "legacy", Text: "Stop the legacy server holding port 8080", Check: `! alive '[o]pt/legacy/httpd'`},
-			{ID: "serve", Text: "Start the new service on port 8080", Check: `alive '[w]eb-serve :8080'`},
+			{ID: "serve", Text: "Start the new service on port 8080", Check: `alive '[w]eb-serve :8080'`,
+				Regressed: "The new web service stopped running."},
 		},
 		Hints: []string{
 			"Reproduce it first: `/opt/web/serve`.",
@@ -464,7 +554,7 @@ const CleanupScript = `for p in /proc/[0-9]*; do
   [ "${p#/proc/}" = "$$" ] && continue
   [ "${p#/proc/}" = 1 ] && continue
   mapfile -d '' args < "$p/cmdline" 2>/dev/null || continue
-  if [[ "${args[*]}" =~ (opt/(metrics/agent|ledger/ledgerd|spool/spoold|reaper/reaper-svc|cache/launcher|cache/warmer|legacy/httpd)|^spool-worker|^\[kworker/u4:2\]|^reaper-svc|^web-serve) ]]; then
+  if [[ "${args[*]}" =~ (^lesson-sleeper|opt/(metrics/agent|ledger/ledgerd|spool/spoold|reaper/reaper-svc|cache/launcher|cache/warmer|legacy/httpd)|^spool-worker|^\[kworker/u4:2\]|^reaper-svc|^web-serve) ]]; then
     kill -9 "${p#/proc/}" 2>/dev/null
   fi
 done

@@ -6,7 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 const BANNER = [
   '\x1b[1;36mENTROPY\x1b[0m  isolated sandbox  \x1b[2m(no network, 256 MB, 0.5 CPU, 100 processes)\x1b[0m',
   '\x1b[2mcd and export persist between commands. Ctrl+C interrupts, Ctrl+L clears.\x1b[0m',
-  '\x1b[2mMulti-line pastes run as one script. Pick a lab on the right to start an incident.\x1b[0m',
+  '\x1b[2mMulti-line pastes run as one script. New here? Start with "First steps" in the labs panel.\x1b[0m',
   '',
 ];
 
