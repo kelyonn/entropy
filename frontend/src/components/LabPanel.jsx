@@ -49,7 +49,7 @@ function groupOf(lab) {
   return lab.stack ? 2 : 1;
 }
 
-export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAction, onDismiss, onAskAI, disabled }) {
+export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAction, onDismiss, onAskAI, onPostmortem, disabled }) {
   const [catalog, setCatalog] = useState([]);
   const [progress, setProgress] = useState(readLocal);
   const [tab, setTab] = useState('incident');
@@ -90,7 +90,9 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
   const solvedCount = catalog.filter((l) => l.kind === 'incident' && progress[l.id]).length;
 
   if (lab) {
-    return <Mission lab={lab} onAction={onAction} onDismiss={onDismiss} onAskAI={onAskAI} disabled={disabled} />;
+    return (
+      <Mission lab={lab} onAction={onAction} onDismiss={onDismiss} onAskAI={onAskAI} onPostmortem={onPostmortem} disabled={disabled} />
+    );
   }
 
   return (
@@ -276,7 +278,7 @@ function Briefing({ lab, onCancel, onStart }) {
   );
 }
 
-function Mission({ lab, onAction, onDismiss, onAskAI, disabled }) {
+function Mission({ lab, onAction, onDismiss, onAskAI, onPostmortem, disabled }) {
   const running = lab.state === 'preparing' || lab.state === 'active';
   const elapsed = useElapsed(lab.startedAt, running);
   const shownElapsed = running ? elapsed : lab.elapsedSeconds;
@@ -437,6 +439,15 @@ function Mission({ lab, onAction, onDismiss, onAskAI, disabled }) {
             className="text-xs font-medium px-3 py-1.5 text-ink-muted hover:text-danger"
           >
             Stop demo
+          </button>
+        )}
+        {!running && isIncident && lab.state !== 'failed' && onPostmortem && (
+          <button
+            type="button"
+            onClick={() => onPostmortem(lab.id)}
+            className="text-xs font-medium px-3 py-1.5 rounded-panel bg-accent text-white hover:opacity-90"
+          >
+            Write postmortem
           </button>
         )}
         {!running && (

@@ -9,6 +9,7 @@ import Onboarding from './components/Onboarding';
 import AuthBar from './components/AuthBar';
 import AuthModal from './components/AuthModal';
 import SessionHistory from './components/SessionHistory';
+import Postmortem from './components/Postmortem';
 import { useWebSocket } from './hooks/useWebSocket';
 import { currentOIDCUser, signOutFromOIDC, oidcConfigured } from './auth';
 
@@ -90,6 +91,8 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authOpen, setAuthOpen] = useState(false);
   const [snapshotSaved, setSnapshotSaved] = useState(false);
+  // undefined: closed; null: whole session; string: one lab run.
+  const [postmortemLab, setPostmortemLab] = useState(undefined);
   const queueTimer = useRef(null);
   const toastTimer = useRef(null);
 
@@ -373,6 +376,7 @@ export default function App() {
               onAction={labAction}
               onDismiss={dismissLab}
               onAskAI={(q) => askAndOpen(q, false)}
+              onPostmortem={(id) => setPostmortemLab(id)}
               disabled={inputDisabled}
             />
           </div>
@@ -435,20 +439,38 @@ export default function App() {
                 </div>
               ))}
             </dl>
-            <button
-              type="button"
-              onClick={() => {
-                window.location.href = '/';
-              }}
-              className="mt-6 w-full bg-accent text-white py-2 rounded-panel text-sm font-medium hover:opacity-90"
-            >
-              Start a new session
-            </button>
+            <div className="mt-6 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPostmortemLab(null)}
+                className="w-full border border-line text-ink py-2 rounded-panel text-sm font-medium hover:bg-muted"
+              >
+                Session postmortem
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = '/';
+                }}
+                className="w-full bg-accent text-white py-2 rounded-panel text-sm font-medium hover:opacity-90"
+              >
+                Start a new session
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
+
+      {postmortemLab !== undefined && (
+        <Postmortem
+          sessionId={sessionId}
+          labId={postmortemLab}
+          authHeaders={authHeaders}
+          onClose={() => setPostmortemLab(undefined)}
+        />
+      )}
     </div>
   );
 }

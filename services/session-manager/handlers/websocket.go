@@ -359,6 +359,7 @@ func (c *conn) streamAI(command, output string, exitCode int, simpler bool, ques
 			model = "default"
 		}
 		_ = h.store.InsertAIExplanation(c.ctx, c.sessionID, text, provider+":"+model, len(strings.Fields(text)))
+		c.recordReplay(replayEvent{Kind: "ai", Command: command, ExitCode: exitCode, Message: clip(strings.TrimSpace(text), 600)})
 	}
 	h.rdb.Incr(c.ctx, "metric:ai_explanations")
 	c.send(ws.TypeVisualization, map[string]interface{}{"status": afterStatus})
@@ -373,6 +374,7 @@ func (c *conn) rememberFailure(command, output string, exitCode int) {
 // handleCrash reacts to a crash-class failure: signal deaths, timeouts,
 // kernel events. These are explained automatically.
 func (c *conn) handleCrash(command, output string, exitCode int, event string) {
+	c.recordReplay(replayEvent{Kind: "crash", Command: command, ExitCode: exitCode, Message: crashSummary(output, exitCode)})
 	c.crashes.Add(1)
 	c.rememberFailure(command, output, exitCode)
 	c.h.rdb.Incr(c.ctx, "metric:total_crashes")

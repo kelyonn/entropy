@@ -109,3 +109,42 @@ body {
   border-radius: var(--radius);
   overflow-x: auto;
 }
+
+.prose-table table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.8125rem;
+}
+
+.prose-table th,
+.prose-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose-table th {
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.prose-entropy ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin: 0.4rem 0;
+}
+
+.prose-entropy li {
+  margin: 0.15rem 0;
+}
+
+.prose-entropy h1 {
+  font-size: 1.25rem;
+}
+
+.prose-entropy h2 {
+  font-size: 1rem;
+  margin-top: 1.25rem;
+}

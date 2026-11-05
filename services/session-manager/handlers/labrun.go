@@ -120,6 +120,7 @@ func (c *conn) startLab(id string) {
 	c.lab = run
 	c.labMu.Unlock()
 	c.h.rdb.Incr(c.ctx, "metric:labs_started")
+	c.recordReplay(replayEvent{Kind: "lab", LabID: lab.ID, Message: "started: " + lab.Title})
 	c.sendLab(run, "Preparing the sandbox.")
 
 	if lab.Kind == labs.KindDemo {
@@ -253,6 +254,14 @@ func (c *conn) checkLab(explicit bool) {
 	if run.checked {
 		regressions = labs.Regressions(run.lab, run.status, next)
 	}
+	var newlyMet []string
+	if run.checked {
+		for _, o := range run.lab.Objectives {
+			if next[o.ID] && !run.status[o.ID] {
+				newlyMet = append(newlyMet, o.Text)
+			}
+		}
+	}
 	run.checked = true
 	run.status = next
 	if len(regressions) > 0 {
@@ -268,7 +277,11 @@ func (c *conn) checkLab(explicit bool) {
 	}
 	c.labMu.Unlock()
 
+	for _, text := range newlyMet {
+		c.recordReplay(replayEvent{Kind: "objective", LabID: run.lab.ID, Message: text})
+	}
 	for _, r := range regressions {
+		c.recordReplay(replayEvent{Kind: "regression", LabID: run.lab.ID, Message: r.Message})
 		c.notice("\x1b[33m[lab] " + r.Message + "\x1b[0m")
 	}
 
@@ -294,6 +307,7 @@ func (c *conn) checkLab(explicit bool) {
 		LabID: run.lab.ID, CompletedAt: time.Now().UTC().Format(time.RFC3339),
 		Seconds: seconds, HintsUsed: run.hintsUsed,
 	})
+	c.recordReplay(replayEvent{Kind: "lab", LabID: run.lab.ID, Message: fmt.Sprintf("resolved in %s with %d hint(s)", formatDuration(seconds), run.hintsUsed), DurationMs: int64(seconds) * 1000})
 	c.notice(fmt.Sprintf("\x1b[32m[lab] %s resolved in %s with %d hint(s).\x1b[0m", run.lab.Title, formatDuration(seconds), run.hintsUsed))
 	c.sendLab(run, "All objectives met.")
 	c.send(ws.TypeVisualization, map[string]interface{}{"status": "healthy"})
@@ -307,10 +321,15 @@ func (c *conn) revealHint() {
 		c.send(ws.TypeError, map[string]string{"message": "no lab is running"})
 		return
 	}
+	hint := ""
 	if run.hintsUsed < len(run.lab.Hints) {
+		hint = run.lab.Hints[run.hintsUsed]
 		run.hintsUsed++
 	}
 	c.labMu.Unlock()
+	if hint != "" {
+		c.recordReplay(replayEvent{Kind: "hint", LabID: run.lab.ID, Message: hint})
+	}
 	c.sendLab(run, "")
 }
 
@@ -333,6 +352,7 @@ func (c *conn) abandonLab(message string, announce bool) {
 	c.labMu.Lock()
 	run.state = labAbandoned
 	c.labMu.Unlock()
+	c.recordReplay(replayEvent{Kind: "lab", LabID: run.lab.ID, Message: "abandoned"})
 	if run.lab.Kind == labs.KindIncident {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		go func() {
