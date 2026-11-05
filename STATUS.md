@@ -1,7 +1,7 @@
 # STATUS
 
-current_stage: P13
-stage_state: local_complete (P12 still blocked_free_stack on operator inputs)
+current_stage: P14
+stage_state: local_complete (P12 still blocked_free_stack on operator inputs; gVisor validation pending on the VM)
 next_stage: P12 free-stack acceptance (operator VM + tunnel)
 branch: kalyan_dev
 delivery_target: free_vm
@@ -12,6 +12,16 @@ Free-stack implementation is in-repo and smoke-tested on local Compose:
 Keycloak OIDC, Ollama AI provider, Prometheus/Grafana/Loki, Linux eBPF runbook,
 and Cloudflare Tunnel Compose profile. Live public acceptance waits on operator
 VM/tunnel inputs in `docs/your-actions.md`.
+
+## P14 platform depth (verified locally 2026-11-05)
+- Isolation: gVisor runtime selection (`SANDBOX_RUNTIME`), minimal capabilities,
+  WebSocket Origin allowlist (`ALLOWED_ORIGINS`). See `docs/isolation.md`.
+- Interactive PTY terminal with shell integration (vim/top/job control work).
+- 15 incidents: 2 starters, 7 system, 4 production-stack (SLO-judged), 1 community,
+  plus AI-generated labs that must pass sandbox validation before publishing.
+- Postmortems, shareable replays, live process tree, interview mode, game day, skills.
+- CI (`.github/workflows/ci.yml`): Go vet/race, frontend build, lab Docker validation, Playwright.
+- Before public launch: install gVisor on the VM and set `SANDBOX_RUNTIME=runsc`.
 
 ## P13 lab engine (verified locally 2026-11-05)
 - 7 incident labs (processes, storage, memory, permissions, networking) and 4 demos;

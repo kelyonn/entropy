@@ -68,6 +68,15 @@ in Stage 2. After Stage 2, this document must match the shipped implementation.
 - System view: three columns (CPU, memory, PIDs) inside capacity outlines,
   colored by threshold (accent < 60%, warning < 85%, danger), with sparklines.
 - Status marks are small square SVG glyphs, never emoji or round pills.
+- System view has two tabs: Resources (3D gauge rack, gauges, production
+  traffic during stack labs) and Processes (live pstree; new rows flash accent,
+  exited rows fade in danger, zombies in warning, OOM victim labeled).
+- Game day shows a banner above the mission with an error-budget bar
+  (accent > 50%, warning > 20%, danger below).
+- Interview missions show a countdown instead of elapsed time and a letter
+  grade card on completion.
+- Replay page (`/?replay=token`) is a read-only player: terminal well on the
+  left, milestones on the right, scrubber and 1x/2x/4x speed.
 
 - Header: wordmark as the hero signal, a short tagline, and one status line on
   the right (connected / reconnecting / offline) using text plus color.

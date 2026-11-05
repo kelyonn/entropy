@@ -26,7 +26,18 @@ Cloudflare Tunnel. See `STATUS.md` and `docs/acceptance-p12.md`.
 
 ## Labs
 
-The workspace centres on guided labs (`services/session-manager/labs/`):
+The workspace centres on guided labs (`services/session-manager/labs/`),
+practiced in an interactive terminal with a live process tree:
+
+- **Production stack**: proxy, app, and database with live traffic; incidents
+  (502s, slow queries, pool exhaustion, log floods) are judged on SLOs.
+- **Modes**: practice (hints, AI), interview (timed, graded A-F), game day
+  (three incidents, one error budget).
+- **Postmortems and replays** generated from the recorded timeline.
+- **Community and AI-generated labs** in a JSON spec format, published only
+  after `ValidateInSandbox` proves them broken by setup and fixed by the
+  reference fix (`go run ./cmd/labctl validate spec.json`).
+
 
 - **Incidents**: the sandbox is broken on purpose (a CPU hog disguised as a
   kernel thread, a deleted log still holding /var/log, PID exhaustion, zombies,

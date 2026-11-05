@@ -125,3 +125,16 @@ Append-only. Newest entries at the bottom. One block per working session.
 - Regression alerts tell learners what they undid; AI context now includes objective status and recent commands.
 - AI Explainer: context is a labeled prompt section, cache key covers the full input, over-budget auto requests get prepared explanations.
 - Verified with a request-logging fake model; real Ollama output not checked.
+
+## 2026-11-05 — P14 platform depth
+- Isolation: SANDBOX_RUNTIME (gVisor preferred, fail closed when named), dropped DAC_OVERRIDE,
+  ulimits, WebSocket Origin allowlist. gVisor itself could not be run in this environment.
+- Interactive PTY terminal via Airlock /internal/pty and Session Manager /ws/pty; OSC 633 shell
+  integration keeps exit codes, explanations, objectives, and timeline. Demos run in the PTY.
+- CI workflow (Go, frontend, lab Docker validation, Playwright) green on GitHub.
+- Production stack (Python proxy/app/db/loadgen + stackctl) and 4 SLO incidents; sandbox
+  image switched to full python3. Periodic objective re-checks.
+- Postmortems + share-link replays; live process tree; interview/game day/skills.
+- Lab spec format, community labs, ValidateInSandbox, labctl, AI generator (fake-model e2e:
+  rejected attempt 1, published attempt 2). Real Ollama generation quality unverified.
+- All 14 incidents validated in Docker on entropy-sandbox:latest.
