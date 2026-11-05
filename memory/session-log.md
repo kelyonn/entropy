@@ -105,3 +105,16 @@ Append-only. Newest entries at the bottom. One block per working session.
 - Added `docs/closeout-pasteback.md` and `scripts/vm-bootstrap.sh`.
 - STATUS remains `local_complete / blocked_free_stack` until operator paste-back.
 
+
+## 2026-11-05 — P13 lab engine and workspace
+- Replaced the four one-shot scenarios with a lab catalog: 7 break/fix incidents
+  (runaway CPU with supervisor, deleted-but-open log, PID exhaustion, zombies,
+  permissions, memory leak, port conflict) and 4 demos. Objectives auto-check
+  after every command; hints, debriefs, Redis progress, `/api/labs`.
+- Verified every incident in Docker under Airlock limits with reference fixes.
+- Shell state (cwd, exports) persists via `/root/.entropy/rc`; Ctrl+C now works.
+  Found and fixed: background jobs ignored SIGINT, and Airlock's `/bin/sh` kill
+  rejected `--`, so timeout kills never reached the process.
+- Stats now report PIDs and use a two-sample CPU read (one-shot read was always 0).
+- Frontend rebuilt around the lab loop; fixed dropped output chunks from batched state.
+- Browser-verified locally (services run natively against Docker); full Compose not run.

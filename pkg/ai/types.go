@@ -7,6 +7,8 @@ type ExplainRequest struct {
 	ExitCode  int    `json:"exitCode"`
 	Simpler   bool   `json:"simpler,omitempty"`
 	Question  string `json:"question,omitempty"`
+	// Context is optional grounding, such as the active lab's goals.
+	Context string `json:"context,omitempty"`
 }
 
 type ExplainToken struct {

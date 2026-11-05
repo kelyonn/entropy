@@ -1,0 +1,13 @@
+# Learner sandbox image. Adds the diagnostic tools the labs teach (ps, top,
+# lsof, ss, strace) on top of the stock Ubuntu userland. Airlock falls back to
+# ubuntu:22.04 when this image is not built, and every lab still works there.
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      procps psmisc lsof iproute2 strace file less vim-tiny \
+      python3-minimal curl ca-certificates bc jq tree \
+ && rm -rf /var/lib/apt/lists/*
+RUN printf 'Entropy sandbox. Isolated: no network, 256 MB memory, 0.5 CPU, 100 processes.\n' > /etc/motd
+WORKDIR /root
+CMD ["/bin/bash"]

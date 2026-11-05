@@ -47,16 +47,27 @@ in Stage 2. After Stage 2, this document must match the shipped implementation.
 ## Layout (>=1024px)
 
 ```text
-+--------------------------------------------------+
-| Wordmark ENTROPY   tagline        session . status|
-+---------------------------+----------------------+
-| Terminal ( ~60% )         | System view ( ~40% ) |
-| dark well                 | light panel + 3D     |
-|                           | metrics row (simple) |
-+---------------------------+----------------------+
-| AI explanation drawer (collapsible, bottom)      |
-+--------------------------------------------------+
++-------------------------------------------------------------+
+| ENTROPY  tagline     status . session . clock . snapshot     |
++--------------------------------------+----------------------+
+| Terminal (dark well, ~65%)           | Labs / Mission panel |
+|                                      |                      |
++--------------------------------------+----------------------+
+| Activity timeline                    | System view: 3D gauge|
+|                                      | rack + CPU/mem/PIDs  |
++--------------------------------------+----------------------+
+| Explanation drawer (collapsible, full width)                |
++-------------------------------------------------------------+
 ```
+
+- Labs panel: Incidents / Demos tabs, progress bar, rows with category,
+  difficulty, minutes, and best result. Selecting a row opens a briefing dialog.
+- Mission panel replaces the catalog while a lab runs: briefing, objective
+  checklist (ticks live), revealed hints, Check / Hint / Nudge / Abandon, and
+  a debrief on completion.
+- System view: three columns (CPU, memory, PIDs) inside capacity outlines,
+  colored by threshold (accent < 60%, warning < 85%, danger), with sparklines.
+- Status marks are small square SVG glyphs, never emoji or round pills.
 
 - Header: wordmark as the hero signal, a short tagline, and one status line on
   the right (connected / reconnecting / offline) using text plus color.

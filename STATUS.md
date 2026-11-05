@@ -1,7 +1,7 @@
 # STATUS
 
-current_stage: P12
-stage_state: local_complete / blocked_free_stack
+current_stage: P13
+stage_state: local_complete (P12 still blocked_free_stack on operator inputs)
 next_stage: P12 free-stack acceptance (operator VM + tunnel)
 branch: kalyan_dev
 delivery_target: free_vm
@@ -12,6 +12,15 @@ Free-stack implementation is in-repo and smoke-tested on local Compose:
 Keycloak OIDC, Ollama AI provider, Prometheus/Grafana/Loki, Linux eBPF runbook,
 and Cloudflare Tunnel Compose profile. Live public acceptance waits on operator
 VM/tunnel inputs in `docs/your-actions.md`.
+
+## P13 lab engine (verified locally 2026-11-05)
+- 7 incident labs (processes, storage, memory, permissions, networking) and 4 demos;
+  each incident is verified solvable in Docker under Airlock limits
+- Objectives auto-check after every command; hints, debriefs, saved progress
+- Shell: `cd`/`export` persist, Ctrl+C interrupts the process group, typeahead,
+  multi-line paste, interactive-program guidance
+- Telemetry: CPU, memory, and PID count with sparklines and a 3D gauge rack
+- Compose builds `entropy-sandbox:latest` (`Dockerfile.sandbox`); Airlock falls back to ubuntu:22.04
 
 ## What works (verified locally 2026-07-22)
 - `docker compose up --build` — UI `http://localhost:3000`, SM `http://127.0.0.1:8082`

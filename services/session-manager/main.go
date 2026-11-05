@@ -59,6 +59,7 @@ func main() {
 	sessionHandler := handlers.NewSessionHandler(rdb, logger, manager, store)
 	restoreHandler := handlers.NewRestoreHandler(rdb, logger, store, storageClient, manager)
 	kernelHandler := handlers.NewKernelHandler(store, logger, wsHandler)
+	labsHandler := handlers.NewLabsHandler(rdb, manager)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", wsHandler.Handle)
@@ -67,6 +68,7 @@ func main() {
 	mux.HandleFunc("/api/session/snapshot", restoreHandler.Snapshot)
 	mux.HandleFunc("/api/sessions", sessionHandler.List)
 	mux.HandleFunc("/api/dashboard", sessionHandler.Dashboard)
+	mux.HandleFunc("/api/labs", labsHandler.List)
 	mux.HandleFunc("/internal/kernel-events", kernelHandler.Ingest)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

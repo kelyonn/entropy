@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -74,15 +76,35 @@ func (o *Orchestrator) SpawnContainerWithRetry(ctx context.Context, sessionID, i
 	return "", fmt.Errorf("spawn failed after 3 attempts: %w", lastErr)
 }
 
-func (o *Orchestrator) spawnContainerOnce(ctx context.Context, sessionID, image string) (string, error) {
-	if image == "" {
-		image = "ubuntu:22.04"
+// fallbackImage is the stock userland every lab is written against.
+const fallbackImage = "ubuntu:22.04"
+
+// sandboxImage prefers the tooled entropy-sandbox image (procps, lsof,
+// iproute2, strace) and falls back to stock Ubuntu when it is not built.
+func (o *Orchestrator) sandboxImage(ctx context.Context, requested string) string {
+	if requested != "" {
+		return requested
 	}
+	preferred := strings.TrimSpace(os.Getenv("SANDBOX_IMAGE"))
+	if preferred == "" || preferred == fallbackImage {
+		return fallbackImage
+	}
+	if _, _, err := o.docker.ImageInspectWithRaw(ctx, preferred); err != nil {
+		o.logger.Warn("sandbox image not available, using fallback",
+			zap.String("image", preferred), zap.String("fallback", fallbackImage))
+		return fallbackImage
+	}
+	return preferred
+}
+
+func (o *Orchestrator) spawnContainerOnce(ctx context.Context, sessionID, image string) (string, error) {
+	image = o.sandboxImage(ctx, image)
 	pids := int64(100)
 	resp, err := o.docker.ContainerCreate(ctx,
 		&container.Config{
 			Image:      image,
 			Cmd:        []string{"/bin/bash", "-c", "mkdir -p /sandbox && cd /sandbox && exec /bin/bash"},
+			Hostname:   "entropy",
 			Tty:        true,
 			OpenStdin:  true,
 			WorkingDir: "/sandbox",
@@ -193,27 +215,65 @@ func (o *Orchestrator) LoadImageGzip(ctx context.Context, data []byte) error {
 	return nil
 }
 
+// Stats is one telemetry sample for a sandbox.
+type Stats struct {
+	CPUPct   float64
+	MemPct   float64
+	MemBytes uint64
+	MemLimit uint64
+	Pids     int
+}
+
 func (o *Orchestrator) StatsCPUMem(ctx context.Context, containerID string) (float64, float64, error) {
-	stats, err := o.docker.ContainerStatsOneShot(ctx, containerID)
+	st, err := o.Stats(ctx, containerID)
+	return st.CPUPct, st.MemPct, err
+}
+
+func (o *Orchestrator) Stats(ctx context.Context, containerID string) (Stats, error) {
+	stats, err := o.docker.ContainerStats(ctx, containerID, false)
 	if err != nil {
-		return 0, 0, err
+		return Stats{}, err
 	}
 	defer stats.Body.Close()
 	var s containerStats
 	if err := json.NewDecoder(stats.Body).Decode(&s); err != nil {
-		return 0, 0, err
+		return Stats{}, err
 	}
+	return computeStats(s), nil
+}
+
+func computeStats(s containerStats) Stats {
 	cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage - s.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(s.CPUStats.SystemUsage - s.PreCPUStats.SystemUsage)
 	cpuPct := 0.0
 	if systemDelta > 0 && cpuDelta > 0 {
-		cpuPct = (cpuDelta / systemDelta) * float64(len(s.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+		cpus := float64(s.CPUStats.OnlineCPUs)
+		if cpus == 0 {
+			cpus = float64(len(s.CPUStats.CPUUsage.PercpuUsage))
+		}
+		if cpus == 0 {
+			cpus = 1
+		}
+		cpuPct = (cpuDelta / systemDelta) * cpus * 100.0
+	}
+	// Report usage the way `docker stats` does: exclude reclaimable page cache.
+	used := s.MemoryStats.Usage
+	cache := s.MemoryStats.Stats["inactive_file"]
+	if cache == 0 {
+		cache = s.MemoryStats.Stats["total_inactive_file"]
+	}
+	if cache > 0 && cache < used {
+		used -= cache
 	}
 	memPct := 0.0
 	if s.MemoryStats.Limit > 0 {
-		memPct = float64(s.MemoryStats.Usage) / float64(s.MemoryStats.Limit) * 100.0
+		memPct = float64(used) / float64(s.MemoryStats.Limit) * 100.0
 	}
-	return cpuPct, memPct, nil
+	return Stats{
+		CPUPct: cpuPct, MemPct: memPct,
+		MemBytes: used, MemLimit: s.MemoryStats.Limit,
+		Pids: int(s.PidsStats.Current),
+	}
 }
 
 type containerStats struct {
@@ -223,6 +283,7 @@ type containerStats struct {
 			PercpuUsage []uint64 `json:"percpu_usage"`
 		} `json:"cpu_usage"`
 		SystemUsage uint64 `json:"system_cpu_usage"`
+		OnlineCPUs  uint32 `json:"online_cpus"`
 	} `json:"cpu_stats"`
 	PreCPUStats struct {
 		CPUUsage struct {
@@ -231,9 +292,13 @@ type containerStats struct {
 		SystemUsage uint64 `json:"system_cpu_usage"`
 	} `json:"precpu_stats"`
 	MemoryStats struct {
-		Usage uint64 `json:"usage"`
-		Limit uint64 `json:"limit"`
+		Usage uint64            `json:"usage"`
+		Limit uint64            `json:"limit"`
+		Stats map[string]uint64 `json:"stats"`
 	} `json:"memory_stats"`
+	PidsStats struct {
+		Current uint64 `json:"current"`
+	} `json:"pids_stats"`
 }
 
 func (o *Orchestrator) saveMetadata(ctx context.Context, sessionID, containerID string) {

@@ -100,15 +100,38 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	cpu, mem, err := s.orch.StatsCPUMem(r.Context(), req.ContainerID)
+	st, err := s.orch.Stats(r.Context(), req.ContainerID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(airlock.StatsResponse{CPU: int(cpu), Memory: int(mem)})
+	json.NewEncoder(w).Encode(airlock.StatsResponse{
+		CPU: int(st.CPUPct), Memory: int(st.MemPct), Pids: st.Pids,
+		MemoryBytes: st.MemBytes, MemoryLimit: st.MemLimit,
+	})
 }
 
 func (s *Server) handleKill(w http.ResponseWriter, r *http.Request) {
+	var req airlock.KillRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.ContainerID == "" {
+		http.Error(w, "containerId required", http.StatusBadRequest)
+		return
+	}
+	sig, ok := container.NormalizeSignal(req.Signal)
+	if !ok {
+		http.Error(w, "unsupported signal", http.StatusBadRequest)
+		return
+	}
+	exec, err := container.NewExecutor(req.ContainerID, s.logger)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	exec.SignalAll(r.Context(), sig)
 	w.WriteHeader(http.StatusOK)
 }
 

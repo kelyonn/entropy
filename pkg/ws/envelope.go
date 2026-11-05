@@ -17,15 +17,19 @@ const (
 	TypeScenario       = "scenario"
 	TypeError          = "error"
 	TypeSessionSummary = "session_summary"
+	TypeLab            = "lab"
+	TypeShell          = "shell"
+	TypeInterrupt      = "interrupt"
+	TypeAIExplain      = "ai_explain"
 )
 
 type Envelope struct {
-	Type      string          `json:"type"`
-	SessionID string          `json:"sessionId"`
-	Timestamp string          `json:"timestamp,omitempty"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
-	Command   string          `json:"command,omitempty"`
-	SessionIDLegacy string  `json:"session_id,omitempty"`
+	Type            string          `json:"type"`
+	SessionID       string          `json:"sessionId"`
+	Timestamp       string          `json:"timestamp,omitempty"`
+	Payload         json.RawMessage `json:"payload,omitempty"`
+	Command         string          `json:"command,omitempty"`
+	SessionIDLegacy string          `json:"session_id,omitempty"`
 }
 
 type CommandPayload struct {
@@ -54,10 +58,11 @@ type AIStreamPayload struct {
 }
 
 type SessionSummaryPayload struct {
-	CommandsRun       int    `json:"commandsRun"`
-	CrashesEncountered int   `json:"crashesEncountered"`
-	DurationSeconds   int    `json:"durationSeconds"`
-	Reason            string `json:"reason"`
+	CommandsRun        int    `json:"commandsRun"`
+	CrashesEncountered int    `json:"crashesEncountered"`
+	DurationSeconds    int    `json:"durationSeconds"`
+	Reason             string `json:"reason"`
+	LabsCompleted      int    `json:"labsCompleted"`
 }
 
 func NewEnvelope(typ, sessionID string, payload interface{}) (Envelope, error) {
