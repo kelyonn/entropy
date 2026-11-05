@@ -211,6 +211,8 @@ export default function App() {
     lastError,
     procTree,
     setProcTreeOn,
+    gameDay,
+    dismissGameDay,
     crash,
     subscribeTerminal,
     sendCommand,
@@ -380,6 +382,8 @@ export default function App() {
               onDismiss={dismissLab}
               onAskAI={(q) => askAndOpen(q, false)}
               onPostmortem={(id) => setPostmortemLab(id)}
+              gameDay={gameDay}
+              onDismissGameDay={dismissGameDay}
               disabled={inputDisabled}
             />
           </div>

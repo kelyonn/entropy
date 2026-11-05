@@ -60,7 +60,7 @@ func (c *conn) finishCommand(f finishedCommand) {
 	}
 	if f.learner {
 		c.recordTrail(f.command, f.exitCode, f.output)
-		c.recordLabCommand(f.command)
+		c.recordLabCommand(f.command, f.exitCode)
 	}
 	c.recordReplay(replayEvent{Kind: "command", Command: display, ExitCode: f.exitCode, DurationMs: f.duration.Milliseconds(), Output: tail(strings.TrimSpace(f.output), 600)})
 	switch class {
@@ -71,7 +71,8 @@ func (c *conn) finishCommand(f finishedCommand) {
 		c.send(ws.TypeVisualization, map[string]interface{}{"status": "error"})
 		// Every non-zero exit is explained automatically, except a command the
 		// learner stopped with Ctrl+C and an identical repeat in this session.
-		if !interrupted && c.firstAutoExplain(display, f.exitCode) {
+		// Interview mode turns all AI help off.
+		if !interrupted && !c.helpLocked() && c.firstAutoExplain(display, f.exitCode) {
 			go c.streamAI(display, output, f.exitCode, false, "", c.aiContext(), "error", true)
 		}
 	default:

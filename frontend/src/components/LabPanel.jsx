@@ -49,7 +49,20 @@ function groupOf(lab) {
   return lab.stack ? 2 : 1;
 }
 
-export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAction, onDismiss, onAskAI, onPostmortem, disabled }) {
+export default function LabPanel({
+  sessionId,
+  authHeaders,
+  lab,
+  labVersion,
+  onAction,
+  onDismiss,
+  onAskAI,
+  onPostmortem,
+  gameDay,
+  onDismissGameDay,
+  disabled,
+}) {
+  const [confirmGameDay, setConfirmGameDay] = useState(false);
   const [catalog, setCatalog] = useState([]);
   const [progress, setProgress] = useState(readLocal);
   const [tab, setTab] = useState('incident');
@@ -66,7 +79,12 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
         const merged = { ...readLocal() };
         Object.entries(res.data.progress || {}).forEach(([id, c]) => {
           const prev = merged[id];
-          if (!prev || c.hintsUsed < prev.hintsUsed || (c.hintsUsed === prev.hintsUsed && c.seconds < prev.seconds)) {
+          const better =
+            !prev ||
+            (c.score ?? 0) > (prev.score ?? 0) ||
+            ((c.score ?? 0) === (prev.score ?? 0) &&
+              (c.hintsUsed < prev.hintsUsed || (c.hintsUsed === prev.hintsUsed && c.seconds < prev.seconds)));
+          if (better) {
             merged[id] = c;
           }
         });
@@ -89,17 +107,35 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
   const incidentCount = catalog.filter((l) => l.kind === 'incident').length;
   const solvedCount = catalog.filter((l) => l.kind === 'incident' && progress[l.id]).length;
 
+  const banner = gameDay && <GameDayBanner gameDay={gameDay} onDismiss={onDismissGameDay} />;
+
   if (lab) {
     return (
-      <Mission lab={lab} onAction={onAction} onDismiss={onDismiss} onAskAI={onAskAI} onPostmortem={onPostmortem} disabled={disabled} />
+      <div className="flex flex-col gap-3 min-h-0">
+        {banner}
+        <Mission lab={lab} onAction={onAction} onDismiss={onDismiss} onAskAI={onAskAI} onPostmortem={onPostmortem} disabled={disabled} />
+      </div>
     );
+  }
+  if (gameDay && gameDay.state === 'running') {
+    return banner;
   }
 
   return (
     <section className="panel flex flex-col min-h-0">
       <header className="px-4 pt-3 pb-2 border-b border-line">
         <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-ink">Labs</h2>
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-sm font-semibold text-ink">Labs</h2>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => setConfirmGameDay(true)}
+              className="text-xs font-medium text-danger hover:underline disabled:opacity-50"
+            >
+              Start game day
+            </button>
+          </div>
           {incidentCount > 0 && (
             <span className="text-xs text-ink-muted tabular-nums">
               {solvedCount} of {incidentCount} incidents resolved
@@ -118,6 +154,7 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
           {[
             ['incident', 'Incidents'],
             ['demo', 'Demos'],
+            ['skills', 'Skills'],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -135,15 +172,21 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
         </div>
       </header>
 
+      {gameDay && <div className="px-4 pt-3">{banner}</div>}
+
       <p className="px-4 pt-2 text-xs text-ink-muted">
         {tab === 'incident'
           ? 'Something is broken. Diagnose it in the terminal; objectives check themselves after every command.'
-          : 'Short, observable failures. Watch the system view, then read the analysis.'}
+          : tab === 'demo'
+            ? 'Short, observable failures. Watch the system view, then read the analysis.'
+            : 'Your progress by area. Interview grades count separately from practice runs.'}
       </p>
+
+      {tab === 'skills' && <Skills catalog={catalog} progress={progress} />}
 
       {loadError && <p className="px-4 py-3 text-xs text-danger">{loadError}</p>}
 
-      <ul className="px-2 py-2 overflow-y-auto min-h-0">
+      <ul className={`px-2 py-2 overflow-y-auto min-h-0 ${tab === 'skills' ? 'hidden' : ''}`}>
         {grouped.map((l, index) => {
           const done = progress[l.id];
           const firstOfGroup = index === 0 || groupOf(grouped[index - 1]) !== groupOf(l);
@@ -172,6 +215,12 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
                     <div className="text-xs text-ink-muted mt-0.5 line-clamp-2">{l.summary}</div>
                     <div className="mt-1 text-[11px] text-ink-muted">
                       {l.category} <span aria-hidden="true">/</span> {l.difficulty}
+                      {progress[`${l.id}:interview`] && (
+                        <span className="text-ink">
+                          {' '}
+                          <span aria-hidden="true">/</span> interview {progress[`${l.id}:interview`].grade}
+                        </span>
+                      )}
                       {done && (
                         <span className="text-success">
                           {' '}
@@ -192,9 +241,20 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
         <Briefing
           lab={pending}
           onCancel={() => setPending(null)}
-          onStart={() => {
-            onAction('start', pending.id);
+          onStart={(mode) => {
+            onAction('start', pending.id, mode);
             setPending(null);
+          }}
+        />
+      )}
+
+      {confirmGameDay && (
+        <ConfirmGameDay
+          best={progress.gameday}
+          onCancel={() => setConfirmGameDay(false)}
+          onStart={() => {
+            onAction('gameday');
+            setConfirmGameDay(false);
           }}
         />
       )}
@@ -202,7 +262,119 @@ export default function LabPanel({ sessionId, authHeaders, lab, labVersion, onAc
   );
 }
 
+function Skills({ catalog, progress }) {
+  const areas = {};
+  catalog
+    .filter((l) => l.kind === 'incident')
+    .forEach((l) => {
+      const a = (areas[l.category] = areas[l.category] || { total: 0, done: 0, interviews: [] });
+      a.total += 1;
+      if (progress[l.id]) a.done += 1;
+      const iv = progress[`${l.id}:interview`];
+      if (iv?.grade) a.interviews.push(iv.grade);
+    });
+  const order = ['Start here', 'Processes', 'Storage', 'Memory', 'Permissions', 'Networking', 'Production'];
+  const names = Object.keys(areas).sort((a, b) => (order.indexOf(a) + 99) % 99 - (order.indexOf(b) + 99) % 99);
+  const level = (a) => {
+    const pct = a.done / a.total;
+    if (pct === 1 && a.interviews.length === a.total && a.interviews.every((g) => g === 'A' || g === 'B')) return 'Expert';
+    if (pct === 1) return 'Proficient';
+    if (pct >= 0.5) return 'Practicing';
+    if (pct > 0) return 'Started';
+    return 'Not started';
+  };
+  const gd = progress.gameday;
+  return (
+    <div className="px-4 py-3 overflow-y-auto min-h-0 space-y-3">
+      {names.map((n) => {
+        const a = areas[n];
+        return (
+          <div key={n}>
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="font-medium text-ink">{n}</span>
+              <span className="text-ink-muted tabular-nums">
+                {level(a)}
+                {a.interviews.length > 0 ? `, interview ${a.interviews.join(' ')}` : ''} <span aria-hidden="true">/</span>{' '}
+                {a.done} of {a.total}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full bg-muted rounded-[2px] overflow-hidden" aria-hidden="true">
+              <div className="h-full bg-accent transition-[width] duration-500" style={{ width: `${(a.done / a.total) * 100}%` }} />
+            </div>
+          </div>
+        );
+      })}
+      <p className="text-xs text-ink-muted pt-1">
+        {gd ? `Best game day: ${gd.score}% error budget left in ${formatSeconds(gd.seconds)}.` : 'No game day completed yet.'}
+        {' '}Expert means every lab in the area resolved and interviewed at B or better.
+      </p>
+    </div>
+  );
+}
+
+function ConfirmGameDay({ best, onCancel, onStart }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#14181f]/30 p-4" onClick={onCancel} role="presentation">
+      <div className="panel max-w-md w-full p-6" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold text-ink">Game day</h3>
+        <p className="mt-2 text-sm text-ink leading-relaxed">
+          Three random incidents, back to back, sharing one error budget. The budget burns while anything is broken and
+          pauses between pages. Hints still work, but every second counts. Run out of budget and the game is over.
+        </p>
+        {best && (
+          <p className="mt-2 text-xs text-ink-muted">
+            Your best: {best.score}% budget left in {formatSeconds(best.seconds)}.
+          </p>
+        )}
+        <div className="mt-6 flex gap-2 justify-end">
+          <button type="button" onClick={onCancel} className="text-sm px-4 py-2 rounded-panel border border-line hover:bg-muted">
+            Cancel
+          </button>
+          <button type="button" onClick={onStart} autoFocus className="text-sm px-4 py-2 rounded-panel bg-danger text-white hover:opacity-90">
+            Start game day
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GameDayBanner({ gameDay, onDismiss }) {
+  const { state, index, total, resolved, budget } = gameDay;
+  const color = budget > 50 ? 'var(--accent)' : budget > 20 ? 'var(--warning)' : 'var(--danger)';
+  return (
+    <section className="panel px-4 py-3" aria-live="polite">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="font-semibold text-danger">
+          {state === 'running' ? `Game day: incident ${Math.min(index + 1, total)} of ${total}` : state === 'won' ? 'Game day complete' : 'Game day over'}
+        </span>
+        <span className="tabular-nums text-ink-muted">{formatSeconds(gameDay.elapsedSeconds)}</span>
+      </div>
+      <div className="mt-2 flex items-center gap-2 text-xs">
+        <span className="text-ink-muted w-20 shrink-0">Error budget</span>
+        <div className="flex-1 h-2 bg-muted rounded-[2px] overflow-hidden" aria-hidden="true">
+          <div className="h-full transition-[width] duration-700" style={{ width: `${Math.max(0, budget)}%`, background: color }} />
+        </div>
+        <span className="tabular-nums w-10 text-right" style={{ color }}>
+          {budget >= 99.95 ? '100' : budget.toFixed(1)}%
+        </span>
+      </div>
+      {state !== 'running' && (
+        <div className="mt-2 flex items-center justify-between text-sm">
+          <span className="text-ink">
+            {resolved} of {total} resolved{state === 'won' ? `, ${Math.round(budget)}% budget left.` : '.'}
+          </span>
+          <button type="button" onClick={onDismiss} className="text-xs font-medium text-accent">
+            Dismiss
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Briefing({ lab, onCancel, onStart }) {
+  const [mode, setMode] = useState('practice');
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onCancel();
     window.addEventListener('keydown', onKey);
@@ -255,9 +427,27 @@ function Briefing({ lab, onCancel, onStart }) {
         </div>
 
         {lab.kind === 'incident' && (
-          <p className="mt-4 text-xs text-ink-muted">
-            Starting resets any lab in progress. {lab.hintCount} hints are available; using fewer is recorded.
-          </p>
+          <fieldset className="mt-5">
+            <legend className="text-xs font-medium text-ink-muted mb-1.5">Mode</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                ['practice', 'Practice', `${lab.hintCount} hints and AI help available.`],
+                ['interview', 'Interview', `No hints or AI. ${lab.minutes} minute limit. Graded A to F.`],
+              ].map(([id, label, desc]) => (
+                <label
+                  key={id}
+                  className={`cursor-pointer rounded-panel border px-3 py-2 ${
+                    mode === id ? 'border-accent bg-accent-soft' : 'border-line hover:bg-muted'
+                  }`}
+                >
+                  <input type="radio" name="mode" value={id} checked={mode === id} onChange={() => setMode(id)} className="sr-only" />
+                  <div className="text-sm font-medium text-ink">{label}</div>
+                  <div className="text-xs text-ink-muted mt-0.5">{desc}</div>
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-ink-muted">Starting resets any lab in progress.</p>
+          </fieldset>
         )}
 
         <div className="mt-6 flex gap-2 justify-end">
@@ -266,11 +456,11 @@ function Briefing({ lab, onCancel, onStart }) {
           </button>
           <button
             type="button"
-            onClick={onStart}
+            onClick={() => onStart(lab.kind === 'incident' ? mode : 'practice')}
             autoFocus
             className="text-sm px-4 py-2 rounded-panel bg-accent text-white hover:opacity-90"
           >
-            {lab.kind === 'incident' ? 'Start incident' : 'Run demo'}
+            {lab.kind !== 'incident' ? 'Run demo' : mode === 'interview' ? 'Start interview' : 'Start incident'}
           </button>
         </div>
       </div>
@@ -285,13 +475,15 @@ function Mission({ lab, onAction, onDismiss, onAskAI, onPostmortem, disabled }) 
   const [showBriefing, setShowBriefing] = useState(true);
   const isIncident = lab.kind === 'incident';
   const total = lab.objectives?.length || 0;
+  const interview = lab.mode === 'interview';
+  const remaining = interview && lab.timeLimitSeconds ? Math.max(0, lab.timeLimitSeconds - shownElapsed) : null;
 
   const stateLabel = {
     preparing: 'Preparing',
     active: isIncident ? 'In progress' : 'Running',
     completed: isIncident ? 'Resolved' : 'Finished',
     abandoned: 'Abandoned',
-    failed: 'Setup failed',
+    failed: interview && lab.grade === 'F' ? 'Time expired' : 'Setup failed',
   }[lab.state];
   const stateColor = {
     preparing: 'text-warning',
@@ -306,20 +498,26 @@ function Mission({ lab, onAction, onDismiss, onAskAI, onPostmortem, disabled }) 
       <header className="px-4 pt-3 pb-3 border-b border-line">
         <div className="flex items-center justify-between gap-2 text-xs">
           <span className="text-ink-muted">
-            {isIncident ? 'Incident' : 'Demo'} <span aria-hidden="true">/</span> {lab.category}{' '}
+            {interview ? 'Interview' : lab.mode === 'gameday' ? 'Game day' : isIncident ? 'Incident' : 'Demo'}{' '}
+            <span aria-hidden="true">/</span> {lab.category}{' '}
             <span aria-hidden="true">/</span> {lab.difficulty}
           </span>
           <span className={`font-medium ${stateColor}`}>{stateLabel}</span>
         </div>
         <h2 className="mt-1 text-base font-semibold text-ink leading-snug">{lab.title}</h2>
         <div className="mt-1 flex gap-4 text-xs text-ink-muted tabular-nums">
-          <span>{formatSeconds(shownElapsed)}</span>
+          {remaining != null && running ? (
+            <span className={remaining < 60 ? 'text-danger font-medium' : 'text-ink'}>{formatSeconds(remaining)} left</span>
+          ) : (
+            <span>{formatSeconds(shownElapsed)}</span>
+          )}
           {isIncident && (
             <span>
               {lab.objectivesMet} of {total} objectives
             </span>
           )}
-          {isIncident && <span>{lab.hintsUsed} hints used</span>}
+          {isIncident && !interview && <span>{lab.hintsUsed} hints used</span>}
+          {interview && running && <span>hints and AI off</span>}
         </div>
       </header>
 
@@ -381,10 +579,25 @@ function Mission({ lab, onAction, onDismiss, onAskAI, onPostmortem, disabled }) 
           </div>
         )}
 
+        {lab.grade && (
+          <div className="rounded-panel border border-line px-3 py-3 flex items-center gap-4">
+            <div className={`text-4xl font-bold tabular-nums ${lab.grade <= 'B' ? 'text-success' : lab.grade <= 'D' ? 'text-warning' : 'text-danger'}`}>
+              {lab.grade}
+            </div>
+            <div className="text-sm text-ink">
+              <div className="font-semibold">Interview score {lab.score}/100</div>
+              <div className="text-xs text-ink-muted mt-0.5">
+                Scored on time against par, failed commands, and fixes you undid. Written feedback is in the explanation panel.
+              </div>
+            </div>
+          </div>
+        )}
+
         {lab.state === 'completed' && isIncident && (
           <div className="rounded-panel border border-line bg-accent-soft px-3 py-3">
             <div className="text-sm font-semibold text-success">
-              Resolved in {formatSeconds(lab.elapsedSeconds)} with {lab.hintsUsed} hint{lab.hintsUsed === 1 ? '' : 's'}
+              Resolved in {formatSeconds(lab.elapsedSeconds)}
+              {interview ? '' : ` with ${lab.hintsUsed} hint${lab.hintsUsed === 1 ? '' : 's'}`}
             </div>
             {lab.debrief && <p className="mt-2 text-sm text-ink leading-relaxed">{lab.debrief}</p>}
           </div>
@@ -405,6 +618,8 @@ function Mission({ lab, onAction, onDismiss, onAskAI, onPostmortem, disabled }) 
             >
               Check objectives
             </button>
+            {!interview && (
+              <>
             <button
               type="button"
               disabled={disabled || lab.state !== 'active' || lab.hintsUsed >= lab.hintCount}
@@ -421,6 +636,8 @@ function Mission({ lab, onAction, onDismiss, onAskAI, onPostmortem, disabled }) 
             >
               Ask for a nudge
             </button>
+              </>
+            )}
             <button
               type="button"
               disabled={disabled}

@@ -143,6 +143,7 @@ type conn struct {
 
 	labMu sync.Mutex
 	lab   *labRun
+	gd    *gameDay
 
 	// trail is the learner's recent commands, shared with the AI so it can
 	// point at what they actually did.
@@ -389,7 +390,9 @@ func (c *conn) handleCrash(command, output string, exitCode int, event string) {
 	c.send(ws.TypeCrash, map[string]interface{}{
 		"data": crashSummary(output, exitCode), "exitCode": exitCode, "command": command, "event": event,
 	})
-	go c.streamAI(command, output, exitCode, false, "", c.aiContext(), "crashed", true)
+	if !c.helpLocked() {
+		go c.streamAI(command, output, exitCode, false, "", c.aiContext(), "crashed", true)
+	}
 }
 
 func (c *conn) persistSummary(reason string, deliver bool) {
@@ -639,6 +642,7 @@ func (h *WebSocketHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			select {
 			case <-statsTicker.C:
 				c.sendStats()
+				c.tickModes(2 * time.Second)
 				// Re-check objectives every other tick so time-based goals
 				// (SLO windows) complete and regressions surface without the
 				// learner typing another command.
@@ -719,6 +723,10 @@ func (h *WebSocketHandler) Handle(w http.ResponseWriter, r *http.Request) {
 				Simpler  bool   `json:"simpler"`
 			}
 			_ = json.Unmarshal(env.Payload, &p)
+			if c.helpLocked() {
+				c.send(ws.TypeError, map[string]string{"message": "AI help is off in interview mode."})
+				continue
+			}
 			c.failMu.Lock()
 			lf := c.lastFailure
 			c.failMu.Unlock()
@@ -739,13 +747,15 @@ func (h *WebSocketHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			var p struct {
 				ID     string `json:"id"`
 				Action string `json:"action"`
+				Mode   string `json:"mode"`
 			}
 			_ = json.Unmarshal(env.Payload, &p)
-			c.handleLabAction(p.Action, p.ID)
+			c.handleLabAction(p.Action, p.ID, p.Mode)
 		}
 	}
 
 	c.abandonLab("connection closed", false)
+	c.endGameDay()
 	close(c.cmdQueue)
 	<-workerDone
 }
