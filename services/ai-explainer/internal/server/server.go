@@ -37,6 +37,7 @@ func (s *Server) Routes() http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/internal/explain", s.handleExplain)
+	mux.HandleFunc("/internal/complete-json", s.handleCompleteJSON)
 	return mux
 }
 
@@ -111,4 +112,37 @@ func composeOutput(output, context string) string {
 		output = "(no output)"
 	}
 	return output + "\n\n--- Learner context (not program output) ---\n" + context
+}
+
+// handleCompleteJSON returns one JSON completion: {"prompt": "...",
+// "maxTokens": 3000} -> {"json": "..."}. 503 when no model is available.
+func (s *Server) handleCompleteJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Prompt    string `json:"prompt"`
+		MaxTokens int    `json:"maxTokens"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Prompt) == "" {
+		http.Error(w, "prompt required", http.StatusBadRequest)
+		return
+	}
+	completer, ok := s.provider.(ai.JSONCompleter)
+	if !ok {
+		http.Error(w, "generator unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	out, err := completer.CompleteJSON(r.Context(), req.Prompt, req.MaxTokens)
+	if err != nil {
+		status := http.StatusBadGateway
+		if err == ai.ErrGeneratorUnavailable {
+			status = http.StatusServiceUnavailable
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"json": out})
 }

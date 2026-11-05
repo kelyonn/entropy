@@ -1,0 +1,33 @@
+{
+  "id": "stopped-worker",
+  "title": "The worker that will not work",
+  "category": "Processes",
+  "difficulty": "Beginner",
+  "minutes": 6,
+  "summary": "The job queue keeps growing even though the worker process is still there.",
+  "briefing": "Jobs are piling up in /srv/queue. The queue worker has not crashed: it is still in the process list, and restarting it is not allowed because it holds in-flight work. Find out why it is not consuming jobs and get the backlog down.",
+  "concepts": ["process states", "SIGSTOP and SIGCONT", "job control", "reading ps STAT"],
+  "objectives": [
+    {
+      "id": "worker",
+      "text": "The original queue worker is running again (same PID, not stopped)",
+      "check": "p=$(cat /opt/queue/worker.pid) && [ -d /proc/$p ] && [ \"$(cut -d' ' -f3 /proc/$p/stat)\" != T ]",
+      "regressed": "The worker is stopped again, or it was replaced. The goal was to resume the original process."
+    },
+    {
+      "id": "backlog",
+      "text": "Queue backlog below 5 jobs",
+      "check": "[ \"$(ls /srv/queue | wc -l)\" -lt 5 ]",
+      "regressed": "The backlog is growing again."
+    }
+  ],
+  "hints": [
+    "`ls /srv/queue | wc -l` shows the backlog. `ps -eo pid,stat,args | grep queue` shows the worker and its state.",
+    "A STAT of T means the process is stopped by a signal. It exists but is never scheduled.",
+    "SIGSTOP cannot be caught or ignored. The matching signal to resume it is SIGCONT: `kill -CONT <pid>`."
+  ],
+  "debrief": "A stopped process (state T) looks alive in every process list but does no work. SIGSTOP is how Ctrl+Z and debuggers pause programs, and it cannot be caught; only SIGCONT resumes it. Restarting would have lost in-flight work, while SIGCONT resumed the original process exactly where it paused. In production, a queue whose consumer is present but not consuming is a classic sign of a paused or deadlocked worker.",
+  "setup": "mkdir -p /opt/queue /srv/queue\ncat > /opt/queue/worker <<'EOF'\n#!/bin/bash\nwhile true; do\n  for f in /srv/queue/*.job; do\n    [ -e \"$f\" ] && mv \"$f\" /srv/queue/.done\n  done\n  sleep 1\ndone\nEOF\ncat > /opt/queue/producer <<'EOF'\n#!/bin/bash\nwhile true; do\n  touch \"/srv/queue/$(date +%s%N).job\"\n  sleep 1\ndone\nEOF\nchmod +x /opt/queue/worker /opt/queue/producer\nfor i in $(seq 1 40); do touch \"/srv/queue/backlog-$i.job\"; done\nsetsid /opt/queue/worker >/dev/null 2>&1 </dev/null &\necho $! > /opt/queue/worker.pid\nsetsid /opt/queue/producer >/dev/null 2>&1 </dev/null &\nsleep 0.5\nkill -STOP \"$(cat /opt/queue/worker.pid)\"\nsleep 1",
+  "referenceFix": "kill -CONT \"$(cat /opt/queue/worker.pid)\"",
+  "settleSeconds": 3
+}

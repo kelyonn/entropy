@@ -61,6 +61,10 @@ func main() {
 	kernelHandler := handlers.NewKernelHandler(store, logger, wsHandler)
 	labsHandler := handlers.NewLabsHandler(rdb, manager)
 	replayHandler := handlers.NewReplayHandler(rdb)
+	generatorHandler := handlers.NewGeneratorHandler(rdb, logger)
+	if n := generatorHandler.LoadPublished(ctx); n > 0 {
+		logger.Info("generated labs loaded", zap.Int("count", n))
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", wsHandler.Handle)
@@ -71,6 +75,7 @@ func main() {
 	mux.HandleFunc("/api/sessions", sessionHandler.List)
 	mux.HandleFunc("/api/dashboard", sessionHandler.Dashboard)
 	mux.HandleFunc("/api/labs", labsHandler.List)
+	mux.HandleFunc("/api/labs/generate", generatorHandler.Generate)
 	mux.HandleFunc("/api/postmortem", replayHandler.Postmortem)
 	mux.HandleFunc("/api/replay", replayHandler.Replay)
 	mux.HandleFunc("/api/replay/share", replayHandler.Share)
