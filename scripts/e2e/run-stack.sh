@@ -32,7 +32,7 @@ start() {
   (cd "$ROOT/services/airlock" && go build -o "$E2E_DIR/bin/airlock" .)
   (cd "$ROOT/services/session-manager" && go build -o "$E2E_DIR/bin/session-manager" .)
   export REDIS_URL=redis://127.0.0.1:6390
-  PORT=8081 SANDBOX_RUNTIME=${SANDBOX_RUNTIME:-auto} "$E2E_DIR/bin/airlock" >"$E2E_DIR/airlock.log" 2>&1 </dev/null &
+  PORT=8081 SANDBOX_RUNTIME=${SANDBOX_RUNTIME:-auto} SANDBOX_IMAGE=${SANDBOX_IMAGE:-} "$E2E_DIR/bin/airlock" >"$E2E_DIR/airlock.log" 2>&1 </dev/null &
   echo $! >"$E2E_DIR/airlock.pid"
   python3 "$ROOT/scripts/e2e/fake-ai.py" "$E2E_DIR/ai-requests.log" 8093 >"$E2E_DIR/fake-ai.log" 2>&1 </dev/null &
   echo $! >"$E2E_DIR/fake-ai.pid"

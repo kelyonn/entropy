@@ -144,7 +144,13 @@ func (c *conn) prepareIncident(ctx context.Context, run *labRun) {
 			c.lab = nil
 		}
 		c.labMu.Unlock()
-		c.sendLab(run, "The lab could not be prepared in this sandbox. Try again, or pick another lab.")
+		msg := "The lab could not be prepared in this sandbox. Try again, or pick another lab."
+		if code == 3 {
+			// Setup scripts exit 3 with a learner-facing reason, such as a
+			// missing tool in the sandbox image.
+			msg = lastLine(out)
+		}
+		c.sendLab(run, msg)
 		return
 	}
 	c.labMu.Lock()

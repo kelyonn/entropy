@@ -52,12 +52,13 @@ jobs:
         with:
           go-version-file: services/session-manager/go.mod
           cache-dependency-path: services/session-manager/go.sum
-      - run: docker pull ubuntu:22.04
+      - run: docker build -f Dockerfile.sandbox -t entropy-sandbox:latest .
       - name: every incident is solvable under sandbox limits
         working-directory: services/session-manager
         env:
           ENTROPY_LAB_SMOKE: "1"
-        run: go test ./labs/ -run Docker -v
+          ENTROPY_LAB_IMAGE: entropy-sandbox:latest
+        run: go test ./labs/ -run Docker -v -timeout 20m
 
   e2e:
     runs-on: ubuntu-latest

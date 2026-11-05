@@ -11,6 +11,13 @@ import (
 // Reference fixes used only by the Docker smoke test. They prove that every
 // incident is solvable inside the sandbox constraints.
 var referenceFixes = map[string]string{
+	"bad-upstream":    "sed -i 's/8001/8000/' /etc/stack/proxy.conf && stackctl restart proxy && sleep 12",
+	"slow-queries":    "sed -i 's/index_orders=off/index_orders=on/' /etc/stack/db.conf && stackctl restart db && sleep 12",
+	"pool-exhaustion": "sed -i 's/^max_connections=.*/max_connections=20/' /etc/stack/db.conf && stackctl restart db && sleep 12",
+	"log-flood": `sed -i 's/^log_level=.*/log_level=info/' /etc/stack/app.conf
+: > /var/log/stack/app-debug.log.1
+: > /var/log/stack/app.log
+stackctl restart app && sleep 12`,
 	"first-steps-processes": `ps aux
 free -m
 cat /opt/lesson/.pid > /root/answer.txt
@@ -88,6 +95,10 @@ func TestIncidentLabsInDocker(t *testing.T) {
 	}
 	for _, l := range All() {
 		if l.Kind != KindIncident {
+			continue
+		}
+		if l.Stack && image == "ubuntu:22.04" {
+			t.Logf("skipping %s: needs ENTROPY_LAB_IMAGE=entropy-sandbox:latest", l.ID)
 			continue
 		}
 		l := l

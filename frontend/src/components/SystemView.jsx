@@ -172,6 +172,39 @@ export default function SystemView({ health = 'healthy', event, samples, latest 
           );
         })}
       </div>
+      {latest.traffic && <TrafficRow samples={samples} traffic={latest.traffic} />}
     </section>
+  );
+}
+
+// TrafficRow shows the production stack's live service levels during
+// stack labs: requests per second, error rate, and p95 latency.
+function TrafficRow({ samples, traffic }) {
+  const series = samples.filter((s) => s.traffic);
+  const errColor = traffic.errorPct >= 1 ? 'var(--danger)' : 'var(--accent)';
+  const latColor = traffic.p95 >= 150 ? 'var(--danger)' : traffic.p95 >= 100 ? 'var(--warning)' : 'var(--accent)';
+  const cells = [
+    { key: 'rps', label: 'Requests', value: `${traffic.rps}/s`, detail: 'load generator', values: series.map((s) => s.traffic.rps), max: 32, color: 'var(--accent)' },
+    { key: 'err', label: 'Errors', value: `${traffic.errorPct.toFixed(1)}%`, detail: 'SLO below 1%', values: series.map((s) => s.traffic.errorPct), max: 100, color: errColor },
+    { key: 'p95', label: 'p95 latency', value: `${traffic.p95} ms`, detail: 'SLO below 150 ms', values: series.map((s) => Math.min(s.traffic.p95, 1000)), max: 1000, color: latColor },
+  ];
+  return (
+    <div className="border-t border-line">
+      <div className="px-4 pt-2 text-[11px] font-medium text-ink-muted">Production traffic</div>
+      <div className="grid grid-cols-3 gap-px bg-line mt-1 rounded-b-panel overflow-hidden">
+        {cells.map((c) => (
+          <div key={c.key} className="bg-surface px-3 pt-1.5 pb-1.5">
+            <div className="text-[11px] text-ink-muted">{c.label}</div>
+            <div className="text-base font-semibold tabular-nums" style={{ color: c.color }}>
+              {c.value}
+            </div>
+            <div className="text-[11px] text-ink-muted truncate">{c.detail}</div>
+            <div className="mt-1">
+              <Sparkline values={c.values} max={c.max} color={c.color} label={`${c.label} history`} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

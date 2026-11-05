@@ -76,3 +76,13 @@ func TestTrailAndAutoExplainDedupe(t *testing.T) {
 		t.Fatal("auto-explain dedupe wrong")
 	}
 }
+
+func TestParseTraffic(t *testing.T) {
+	s, ok := parseTraffic("1793860000 16 12 4 210 2900\n")
+	if !ok || s.RPS != 16 || s.ErrorPct != 25 || s.P95 != 2900 {
+		t.Fatalf("parseTraffic = %+v %v", s, ok)
+	}
+	if _, ok := parseTraffic("garbage"); ok {
+		t.Fatal("garbage parsed")
+	}
+}
