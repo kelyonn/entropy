@@ -50,6 +50,7 @@ export function useWebSocket(sessionId, authToken = '') {
   const [lab, setLab] = useState(null);
   const [labVersion, setLabVersion] = useState(0);
   const [sessionSummary, setSessionSummary] = useState(null);
+  const [procTree, setProcTree] = useState(null);
   const [lastError, setLastError] = useState(null);
 
   const emitTerminal = useCallback((event) => {
@@ -200,6 +201,9 @@ export function useWebSocket(sessionId, authToken = '') {
         case 'session_summary':
           setSessionSummary(payload);
           break;
+        case 'proctree':
+          setProcTree({ procs: payload.procs || [], at: payload.at });
+          break;
         case 'error':
           setBusy(false);
           setLastError({ message: payload.message || 'error', at: Date.now() });
@@ -297,6 +301,8 @@ export function useWebSocket(sessionId, authToken = '') {
 
   const dismissLab = useCallback(() => setLab(null), []);
 
+  const setProcTreeOn = useCallback((on) => send('proctree', { on }), [send]);
+
   const askAI = useCallback(
     (question, simpler = false) => {
       if (!send('ai_question', { question, simpler })) return;
@@ -335,6 +341,8 @@ export function useWebSocket(sessionId, authToken = '') {
     labVersion,
     sessionSummary,
     lastError,
+    procTree,
+    setProcTreeOn,
     subscribeTerminal,
     sendCommand,
     interrupt,

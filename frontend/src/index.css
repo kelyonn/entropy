@@ -148,3 +148,36 @@ body {
   font-size: 1rem;
   margin-top: 1.25rem;
 }
+
+@keyframes proc-in {
+  from {
+    background: var(--accent-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@keyframes proc-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.15;
+  }
+}
+
+.proc-new {
+  animation: proc-in 1.4s ease-out;
+}
+
+.proc-gone {
+  animation: proc-out 3.5s ease-in forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proc-new,
+  .proc-gone {
+    animation: none;
+  }
+}
