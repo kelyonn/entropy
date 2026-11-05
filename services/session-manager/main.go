@@ -60,6 +60,7 @@ func main() {
 	restoreHandler := handlers.NewRestoreHandler(rdb, logger, store, storageClient, manager)
 	kernelHandler := handlers.NewKernelHandler(store, logger, wsHandler)
 	labsHandler := handlers.NewLabsHandler(rdb, manager)
+	replayHandler := handlers.NewReplayHandler(rdb)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", wsHandler.Handle)
@@ -70,6 +71,9 @@ func main() {
 	mux.HandleFunc("/api/sessions", sessionHandler.List)
 	mux.HandleFunc("/api/dashboard", sessionHandler.Dashboard)
 	mux.HandleFunc("/api/labs", labsHandler.List)
+	mux.HandleFunc("/api/postmortem", replayHandler.Postmortem)
+	mux.HandleFunc("/api/replay", replayHandler.Replay)
+	mux.HandleFunc("/api/replay/share", replayHandler.Share)
 	mux.HandleFunc("/internal/kernel-events", kernelHandler.Ingest)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
