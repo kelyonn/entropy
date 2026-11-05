@@ -19,9 +19,10 @@ import (
 )
 
 type Orchestrator struct {
-	docker *client.Client
-	rdb    *redis.Client
-	logger *zap.Logger
+	isolation Isolation
+	docker    *client.Client
+	rdb       *redis.Client
+	logger    *zap.Logger
 }
 
 func NewOrchestrator(rdb *redis.Client, logger *zap.Logger) (*Orchestrator, error) {
@@ -29,7 +30,30 @@ func NewOrchestrator(rdb *redis.Client, logger *zap.Logger) (*Orchestrator, erro
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
-	return &Orchestrator{docker: cli, rdb: rdb, logger: logger}, nil
+	o := &Orchestrator{docker: cli, rdb: rdb, logger: logger}
+	iso, err := ResolveIsolation(context.Background(), dockerRuntimes{cli}, logger)
+	if err != nil {
+		return nil, err
+	}
+	o.isolation = iso
+	return o, nil
+}
+
+// Isolation reports the active sandbox runtime for health and metrics.
+func (o *Orchestrator) Isolation() Isolation { return o.isolation }
+
+type dockerRuntimes struct{ cli *client.Client }
+
+func (d dockerRuntimes) Runtimes(ctx context.Context) (map[string]bool, error) {
+	info, err := d.cli.Info(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(info.Runtimes))
+	for name := range info.Runtimes {
+		out[name] = true
+	}
+	return out, nil
 }
 
 func (o *Orchestrator) Client() *client.Client {
@@ -100,6 +124,21 @@ func (o *Orchestrator) sandboxImage(ctx context.Context, requested string) strin
 func (o *Orchestrator) spawnContainerOnce(ctx context.Context, sessionID, image string) (string, error) {
 	image = o.sandboxImage(ctx, image)
 	pids := int64(100)
+	hostConfig := &container.HostConfig{
+		Resources: container.Resources{
+			Memory:     256 * 1024 * 1024,
+			MemorySwap: 256 * 1024 * 1024,
+			NanoCPUs:   500000000,
+			PidsLimit:  &pids,
+		},
+		NetworkMode: "none",
+		Tmpfs: map[string]string{
+			"/tmp":     "rw,noexec,nosuid,size=256m",
+			"/var/log": "rw,noexec,nosuid,size=64m",
+		},
+		AutoRemove: false,
+	}
+	o.isolation.apply(hostConfig)
 	resp, err := o.docker.ContainerCreate(ctx,
 		&container.Config{
 			Image:      image,
@@ -114,23 +153,7 @@ func (o *Orchestrator) spawnContainerOnce(ctx context.Context, sessionID, image 
 				"entropy.type":    "sandbox",
 			},
 		},
-		&container.HostConfig{
-			Resources: container.Resources{
-				Memory:     256 * 1024 * 1024,
-				MemorySwap: 256 * 1024 * 1024,
-				NanoCPUs:   500000000,
-				PidsLimit:  &pids,
-			},
-			NetworkMode: "none",
-			CapDrop:     []string{"ALL"},
-			CapAdd:      []string{"CHOWN", "DAC_OVERRIDE", "SETUID", "SETGID"},
-			SecurityOpt: []string{"no-new-privileges:true"},
-			Tmpfs: map[string]string{
-				"/tmp":     "rw,noexec,nosuid,size=256m",
-				"/var/log": "rw,noexec,nosuid,size=64m",
-			},
-			AutoRemove: false,
-		},
+		hostConfig,
 		nil, nil, "entropy-"+sessionID[:8],
 	)
 	if err != nil {

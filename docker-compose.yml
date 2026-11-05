@@ -75,6 +75,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - PORT=8081
       - SANDBOX_IMAGE=${SANDBOX_IMAGE:-entropy-sandbox:latest}
+      # auto uses gVisor when the daemon has it, runsc requires it (production).
+      - SANDBOX_RUNTIME=${SANDBOX_RUNTIME:-auto}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -121,6 +123,7 @@ services:
       - PORT=8080
       - AIRLOCK_URL=http://airlock:8081
       - AI_EXPLAINER_URL=http://ai-explainer:8082
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - MAX_SESSIONS=${MAX_SESSIONS:-100}
       - IDLE_TIMEOUT_SECONDS=${IDLE_TIMEOUT_SECONDS:-}
       - MAX_SESSION_SECONDS=${MAX_SESSION_SECONDS:-}

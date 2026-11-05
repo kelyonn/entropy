@@ -81,6 +81,7 @@ func TestIncidentLabsInDocker(t *testing.T) {
 	if os.Getenv("ENTROPY_LAB_SMOKE") != "1" {
 		t.Skip("set ENTROPY_LAB_SMOKE=1 to run against Docker")
 	}
+	runtime := os.Getenv("ENTROPY_LAB_RUNTIME") // for example runsc
 	image := os.Getenv("ENTROPY_LAB_IMAGE")
 	if image == "" {
 		image = "ubuntu:22.04"
@@ -91,14 +92,19 @@ func TestIncidentLabsInDocker(t *testing.T) {
 		}
 		l := l
 		t.Run(l.ID, func(t *testing.T) {
-			out, err := exec.Command("docker", "run", "-d", "--rm",
+			args := []string{"run", "-d", "--rm"}
+			if runtime != "" {
+				args = append(args, "--runtime", runtime)
+			}
+			out, err := exec.Command("docker", append(args,
 				"--memory", "256m", "--memory-swap", "256m", "--cpus", "0.5", "--pids-limit", "100",
 				"--network", "none", "--cap-drop", "ALL",
-				"--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE", "--cap-add", "SETUID", "--cap-add", "SETGID",
+				"--cap-add", "CHOWN", "--cap-add", "SETUID", "--cap-add", "SETGID",
+				"--ulimit", "nofile=1024:2048",
 				"--security-opt", "no-new-privileges:true",
 				"--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
 				"--tmpfs", "/var/log:rw,noexec,nosuid,size=64m",
-				"-t", "-i", image, "/bin/bash").CombinedOutput()
+				"-t", "-i", image, "/bin/bash")...).CombinedOutput()
 			if err != nil {
 				t.Fatalf("docker run: %v %s", err, out)
 			}
