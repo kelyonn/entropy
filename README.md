@@ -24,6 +24,23 @@ Cloudflare Tunnel. See `STATUS.md` and `docs/acceptance-p12.md`.
 - Data: PostgreSQL, Redis, MinIO (S3-compatible) snapshots.
 - Ops: Prometheus, Grafana, Loki, Promtail.
 
+## Labs
+
+The workspace centres on guided labs (`services/session-manager/labs/`):
+
+- **Incidents**: the sandbox is broken on purpose (a CPU hog disguised as a
+  kernel thread, a deleted log still holding /var/log, PID exhaustion, zombies,
+  permission bugs, a memory leak, a port conflict). Objectives check themselves
+  after every command; hints and a debrief are built in.
+- **Demos**: OOM kill, fork bomb against the PID limit, CPU throttling, and
+  signalling PID 1, each followed by an AI analysis.
+
+Verify every incident against Docker with:
+
+```bash
+cd services/session-manager && ENTROPY_LAB_SMOKE=1 go test ./labs/ -run Docker -v
+```
+
 ## Prerequisites
 
 - Docker and Docker Compose

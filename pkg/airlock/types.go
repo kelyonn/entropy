@@ -44,7 +44,7 @@ type SpawnResponse struct {
 type KillRequest struct {
 	ContainerID string `json:"containerId"`
 	ExecID      string `json:"execId,omitempty"`
-	Signal      string `json:"signal"` // SIGTERM or SIGKILL
+	Signal      string `json:"signal"` // SIGINT, SIGTERM, SIGKILL, SIGHUP, or SIGQUIT
 }
 
 type StatsRequest struct {
@@ -52,8 +52,11 @@ type StatsRequest struct {
 }
 
 type StatsResponse struct {
-	CPU    int `json:"cpu"`
-	Memory int `json:"memory"`
+	CPU         int    `json:"cpu"`
+	Memory      int    `json:"memory"`
+	Pids        int    `json:"pids"`
+	MemoryBytes uint64 `json:"memoryBytes,omitempty"`
+	MemoryLimit uint64 `json:"memoryLimit,omitempty"`
 }
 
 type StopRequest struct {

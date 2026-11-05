@@ -76,6 +76,12 @@ Frontend hosted via the free VM + tunnel; `docs/acceptance-p12.md` Req 1-18 pass
 
 Exit: Acceptance report complete; STATUS next_stage=none.
 
+### P13 — Lab engine and learner workspace
+Break/fix incident labs with automatic checks, persistent shell state, Ctrl+C,
+live CPU/memory/PID telemetry, and a mission-centred workspace.
+
+Exit: incidents verified in Docker; browser run resolves a lab end to end.
+
 ---
 
 ## Legacy track (S0-S13, complete)

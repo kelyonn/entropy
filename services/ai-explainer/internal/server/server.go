@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	pkgai "github.com/entropy/pkg/ai"
 	"github.com/entropy/services/ai-explainer/ai"
@@ -15,8 +16,8 @@ import (
 
 type Server struct {
 	provider ai.ExplainerProvider
-	limiter *middleware.RateLimiter
-	logger  *zap.Logger
+	limiter  *middleware.RateLimiter
+	logger   *zap.Logger
 }
 
 func New(rdb *redis.Client, logger *zap.Logger) *Server {
@@ -24,8 +25,8 @@ func New(rdb *redis.Client, logger *zap.Logger) *Server {
 	ollamaModel := os.Getenv("OLLAMA_MODEL")
 	return &Server{
 		provider: ai.NewOllamaClient(rdb, logger, ollamaURL, ollamaModel),
-		limiter: middleware.NewRateLimiter(rdb),
-		logger:  logger,
+		limiter:  middleware.NewRateLimiter(rdb),
+		logger:   logger,
 	}
 }
 
@@ -61,6 +62,10 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if ctx := strings.TrimSpace(req.Context); ctx != "" {
+		req.Stderr = "[Context] " + truncateContext(ctx) + "\n[Output]\n" + req.Stderr
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	flusher, _ := w.(http.Flusher)
@@ -78,4 +83,14 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = streamFn(r.Context(), req.Command, req.Stderr, req.ExitCode, emit)
+}
+
+// truncateContext keeps grounding short so error output still fits in the
+// provider prompt budget.
+func truncateContext(ctx string) string {
+	const max = 600
+	if len(ctx) <= max {
+		return ctx
+	}
+	return ctx[:max]
 }
