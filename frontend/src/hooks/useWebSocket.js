@@ -51,6 +51,7 @@ export function useWebSocket(sessionId, authToken = '') {
   const [labVersion, setLabVersion] = useState(0);
   const [sessionSummary, setSessionSummary] = useState(null);
   const [procTree, setProcTree] = useState(null);
+  const [gameDay, setGameDay] = useState(null);
   const [lastError, setLastError] = useState(null);
 
   const emitTerminal = useCallback((event) => {
@@ -201,6 +202,9 @@ export function useWebSocket(sessionId, authToken = '') {
         case 'session_summary':
           setSessionSummary(payload);
           break;
+        case 'gameday':
+          setGameDay(payload);
+          break;
         case 'proctree':
           setProcTree({ procs: payload.procs || [], at: payload.at });
           break;
@@ -289,15 +293,18 @@ export function useWebSocket(sessionId, authToken = '') {
   const interrupt = useCallback(() => send('interrupt', {}), [send]);
 
   const labAction = useCallback(
-    (action, id) => {
-      if (action === 'start') {
+    (action, id, mode) => {
+      if (action === 'start' || action === 'gameday') {
         setCrash(null);
         setVizEvent(null);
       }
-      return send('lab', { action, id });
+      if (action === 'gameday') setGameDay(null);
+      return send('lab', { action, id, mode });
     },
     [send],
   );
+
+  const dismissGameDay = useCallback(() => setGameDay(null), []);
 
   const dismissLab = useCallback(() => setLab(null), []);
 
@@ -343,6 +350,8 @@ export function useWebSocket(sessionId, authToken = '') {
     lastError,
     procTree,
     setProcTreeOn,
+    gameDay,
+    dismissGameDay,
     subscribeTerminal,
     sendCommand,
     interrupt,

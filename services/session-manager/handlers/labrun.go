@@ -34,6 +34,13 @@ type labRun struct {
 	// for regression detection.
 	checked bool
 	alerts  []labs.Regression
+
+	mode            string
+	deadline        time.Time
+	failed          int
+	regressionCount int
+	score           int
+	grade           string
 }
 
 type objectiveView struct {
@@ -74,6 +81,15 @@ func (r *labRun) view(message string) map[string]interface{} {
 	if r.state == labCompleted {
 		v["debrief"] = r.lab.Debrief
 	}
+	v["mode"] = r.mode
+	if !r.deadline.IsZero() {
+		v["deadline"] = r.deadline.UTC().Format(time.RFC3339)
+		v["timeLimitSeconds"] = r.lab.Minutes * 60
+	}
+	if r.grade != "" {
+		v["score"] = r.score
+		v["grade"] = r.grade
+	}
 	v["alerts"] = r.alerts
 	if message != "" {
 		v["message"] = message
@@ -88,10 +104,14 @@ func (c *conn) sendLab(r *labRun, message string) {
 	c.send(ws.TypeLab, v)
 }
 
-func (c *conn) handleLabAction(action, id string) {
+func (c *conn) handleLabAction(action, id, mode string) {
 	switch action {
 	case "", "start":
-		c.startLab(id)
+		c.startLab(id, normalizeMode(mode))
+	case "gameday":
+		c.abandonLab("", false)
+		c.endGameDay()
+		go c.startGameDay()
 	case "check":
 		go c.checkLab(true)
 	case "hint":
@@ -103,7 +123,7 @@ func (c *conn) handleLabAction(action, id string) {
 	}
 }
 
-func (c *conn) startLab(id string) {
+func (c *conn) startLab(id, mode string) {
 	lab, ok := labs.Get(id)
 	if !ok {
 		c.send(ws.TypeError, map[string]string{"message": "unknown lab"})
@@ -112,9 +132,15 @@ func (c *conn) startLab(id string) {
 	c.abandonLab("", false)
 
 	ctx, cancel := context.WithCancel(c.ctx)
+	if lab.Kind == labs.KindDemo {
+		mode = modePractice
+	}
 	run := &labRun{
 		lab: lab, startedAt: time.Now(), status: map[string]bool{},
-		state: labPreparing, cancel: cancel,
+		state: labPreparing, cancel: cancel, mode: mode,
+	}
+	if mode == modeInterview {
+		run.deadline = run.startedAt.Add(time.Duration(lab.Minutes) * time.Minute)
 	}
 	c.labMu.Lock()
 	c.lab = run
@@ -264,6 +290,7 @@ func (c *conn) checkLab(explicit bool) {
 	}
 	run.checked = true
 	run.status = next
+	run.regressionCount += len(regressions)
 	if len(regressions) > 0 {
 		run.alerts = append(run.alerts, regressions...)
 		if len(run.alerts) > 3 {
@@ -309,6 +336,12 @@ func (c *conn) checkLab(explicit bool) {
 	})
 	c.recordReplay(replayEvent{Kind: "lab", LabID: run.lab.ID, Message: fmt.Sprintf("resolved in %s with %d hint(s)", formatDuration(seconds), run.hintsUsed), DurationMs: int64(seconds) * 1000})
 	c.notice(fmt.Sprintf("\x1b[32m[lab] %s resolved in %s with %d hint(s).\x1b[0m", run.lab.Title, formatDuration(seconds), run.hintsUsed))
+	switch run.mode {
+	case modeInterview:
+		c.finishInterview(run, seconds)
+	case modeGameDay:
+		defer c.gameDayResolved()
+	}
 	c.sendLab(run, "All objectives met.")
 	c.send(ws.TypeVisualization, map[string]interface{}{"status": "healthy"})
 }
@@ -319,6 +352,11 @@ func (c *conn) revealHint() {
 	if run == nil || run.state != labActive {
 		c.labMu.Unlock()
 		c.send(ws.TypeError, map[string]string{"message": "no lab is running"})
+		return
+	}
+	if run.mode == modeInterview {
+		c.labMu.Unlock()
+		c.send(ws.TypeError, map[string]string{"message": "Hints are off in interview mode."})
 		return
 	}
 	hint := ""
@@ -362,6 +400,9 @@ func (c *conn) abandonLab(message string, announce bool) {
 	}
 	if announce {
 		c.sendLab(run, message)
+		if run.mode == modeGameDay {
+			c.endGameDay()
+		}
 	}
 }
 
@@ -374,10 +415,13 @@ func formatDuration(seconds int) string {
 
 // recordLabCommand adds a learner command to the active incident so
 // command-based objectives can see it.
-func (c *conn) recordLabCommand(cmd string) {
+func (c *conn) recordLabCommand(cmd string, exitCode int) {
 	c.labMu.Lock()
 	defer c.labMu.Unlock()
 	if c.lab != nil && c.lab.state == labActive && c.lab.lab.Kind == labs.KindIncident {
 		c.lab.commands = append(c.lab.commands, cmd)
+		if exitCode != 0 {
+			c.lab.failed++
+		}
 	}
 }

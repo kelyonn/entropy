@@ -14,6 +14,10 @@ type Completion struct {
 	CompletedAt string `json:"completedAt"`
 	Seconds     int    `json:"seconds"`
 	HintsUsed   int    `json:"hintsUsed"`
+	// Mode, Score, and Grade are set for interview and game day results.
+	Mode  string `json:"mode,omitempty"`
+	Score int    `json:"score,omitempty"`
+	Grade string `json:"grade,omitempty"`
 }
 
 // Progress stores completions in Redis keyed by owner. Signed-in users own
@@ -54,6 +58,9 @@ func (p *Progress) Record(ctx context.Context, owner string, c Completion) error
 }
 
 func better(old, next Completion) bool {
+	if old.Score != next.Score {
+		return old.Score > next.Score
+	}
 	if old.HintsUsed != next.HintsUsed {
 		return old.HintsUsed < next.HintsUsed
 	}
