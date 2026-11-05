@@ -26,6 +26,11 @@ Legacy fields (`session_id`, `command`, top-level `data`) are accepted for compa
 - `interrupt` (client): SIGINT to the running command's process group.
 - `ai_explain` (client): explain the last failed command again. Every non-zero exit auto-explains (Req 8.1) except Ctrl+C and identical repeats.
 - `lab` (server) includes `alerts`: objectives that were met and regressed, with a message.
+- `lab` (client) `mode`: practice, interview (no hints/AI, timed, graded), gameday. Action `gameday` starts a game day.
+- `gameday` (server): state, index, total, resolved, budget.
+- `proctree` (client `{on}`; server `{procs, at}`): process snapshots while the Processes tab is open.
+- `/ws/pty?session_id=`: interactive terminal. Binary frames are terminal bytes; text frames
+  `{"type":"resize","cols","rows"}` up and `{"type":"exit","code"}` down. Requires `/ws` connected.
 
 ## HTTP (Session Manager)
 - `GET /api/session/new`
@@ -34,6 +39,8 @@ Legacy fields (`session_id`, `command`, top-level `data`) are accepted for compa
 - `GET /api/sessions` (JWT or `X-User-Id`; not guest)
 - `GET /api/dashboard`
 - `GET /api/labs?session_id=` (catalog + progress)
+- `POST /api/labs/generate` `{topic, difficulty}` -> job; `GET /api/labs/generate?job=` status
+- `GET /api/postmortem?session_id=&lab=`, `GET /api/replay?session_id=|token=`, `POST /api/replay/share?session_id=`
 - `GET /health`
 - `GET /ws?session_id=` (guest=`1` or `access_token=`)
 
@@ -51,3 +58,8 @@ Slate Studio tokens in `docs/ui.md` and `frontend/src/index.css`.
 - Checks match processes with bracket patterns (`'[o]pt/x'`) so the check never matches itself.
 - Every new incident needs a reference fix in `labs/smoke_test.go` and must pass
   `ENTROPY_LAB_SMOKE=1 go test ./labs/ -run Docker`.
+- Spec format for community and generated labs: `labs/spec.go`. Add community labs as
+  `labs/community/<id>.json` and run `go run ./cmd/labctl validate labs/community/<id>.json`.
+- Production-stack labs set `Stack: true`, need `entropy-sandbox:latest` (python3), and judge
+  SLOs from `/var/log/stack/traffic.log` via `slo_errors_below` / `slo_p95_below`.
+- Shell integration: the PTY shell rc (`handlers/shellintegration.go`) emits OSC 633 C/D/A markers.

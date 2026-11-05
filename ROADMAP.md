@@ -82,6 +82,13 @@ live CPU/memory/PID telemetry, and a mission-centred workspace.
 
 Exit: incidents verified in Docker; browser run resolves a lab end to end.
 
+### P14 — Platform depth
+gVisor-ready isolation, interactive PTY terminal, production-stack incidents,
+postmortems and replays, live process tree, interview and game day modes, and
+an AI lab generator that only publishes sandbox-validated labs. CI on every push.
+
+Exit: all incidents validate in Docker; browser flows verified; CI green.
+
 ---
 
 ## Legacy track (S0-S13, complete)
