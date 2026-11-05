@@ -38,6 +38,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/internal/exec", s.handleExec)
 	mux.HandleFunc("/internal/stats", s.handleStats)
 	mux.HandleFunc("/internal/kill", s.handleKill)
+	mux.HandleFunc("/internal/pty", s.handlePTY)
 	mux.HandleFunc("/internal/stop", s.handleStop)
 	mux.HandleFunc("/internal/commit", s.handleCommit)
 	mux.HandleFunc("/internal/save-image", s.handleSaveImage)

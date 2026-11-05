@@ -40,7 +40,7 @@ func TestWrapUserCommandKeepsCommandVerbatim(t *testing.T) {
 	if !strings.HasSuffix(w, cmd+"\n") || !strings.HasPrefix(w, ". "+shellRC) {
 		t.Fatalf("unexpected wrapper:\n%s", w)
 	}
-	if !strings.Contains(installShellRC, "trap __entropy_save EXIT") || !strings.HasSuffix(installShellRC, "ENTROPY_RC\n") {
+	if !strings.Contains(installShellRC, "trap __entropy_save EXIT") || !strings.HasSuffix(installShellRC, "ENTROPY_PTYRC\n") {
 		t.Fatalf("rc installer missing prologue:\n%s", installShellRC)
 	}
 }

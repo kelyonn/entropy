@@ -159,6 +159,10 @@ func (c *conn) runDemo(ctx context.Context, run *labRun) {
 	run.state = labActive
 	c.labMu.Unlock()
 	c.sendLab(run, "")
+	if result, ok := c.runInPTY(ctx, run.lab.Demo, "[demo] "+run.lab.Title); ok {
+		c.finishDemo(ctx, run, result)
+		return
+	}
 	done := make(chan commandResult, 1)
 	select {
 	case <-ctx.Done():
@@ -170,6 +174,13 @@ func (c *conn) runDemo(ctx context.Context, run *labRun) {
 	case <-ctx.Done():
 		return
 	case result = <-done:
+	}
+	c.finishDemo(ctx, run, result)
+}
+
+func (c *conn) finishDemo(ctx context.Context, run *labRun, result commandResult) {
+	if ctx.Err() != nil {
+		return
 	}
 	c.labMu.Lock()
 	if c.lab != run {

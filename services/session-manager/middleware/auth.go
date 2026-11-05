@@ -37,7 +37,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		token := ""
 		if strings.HasPrefix(auth, "Bearer ") {
 			token = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-		} else if r.URL.Path == "/ws" {
+		} else if r.URL.Path == "/ws" || r.URL.Path == "/ws/pty" {
 			token = r.URL.Query().Get("access_token")
 		}
 

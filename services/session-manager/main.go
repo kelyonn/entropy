@@ -63,6 +63,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", wsHandler.Handle)
+	mux.HandleFunc("/ws/pty", wsHandler.HandlePTY)
 	mux.HandleFunc("/api/session/new", sessionHandler.Create)
 	mux.HandleFunc("/api/session/restore", restoreHandler.Restore)
 	mux.HandleFunc("/api/session/snapshot", restoreHandler.Snapshot)
