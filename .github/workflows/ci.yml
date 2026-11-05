@@ -1,0 +1,93 @@
+name: ci
+
+on:
+  push:
+    branches: [main, kalyan_dev, "claude/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [pkg, services/airlock, services/ai-explainer, services/session-manager]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+      - name: test
+        working-directory: ${{ matrix.module }}
+        run: go test -race ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  labs:
+    name: labs (docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/session-manager/go.mod
+          cache-dependency-path: services/session-manager/go.sum
+      - run: docker pull ubuntu:22.04
+      - name: every incident is solvable under sandbox limits
+        working-directory: services/session-manager
+        env:
+          ENTROPY_LAB_SMOKE: "1"
+        run: go test ./labs/ -run Docker -v
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/session-manager/go.mod
+          cache-dependency-path: services/session-manager/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: docker pull ubuntu:22.04 && docker pull redis:7-alpine
+      - run: scripts/e2e/run-stack.sh start
+      - run: npm run test:e2e
+        working-directory: frontend
+      - name: logs on failure
+        if: failure()
+        run: tail -n 100 .e2e/*.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: frontend/test-results
+      - run: scripts/e2e/run-stack.sh stop
+        if: always()
