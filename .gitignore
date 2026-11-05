@@ -21,3 +21,8 @@ services/ebpf-monitor/ebpf-monitor
 services/airlock/airlock
 services/session-manager/session-manager
 services/ai-explainer/ai-explainer
+
+# End-to-end test output
+.e2e/
+frontend/test-results/
+frontend/playwright-report/
