@@ -55,8 +55,13 @@ type Lab struct {
 	Starter bool `json:"starter,omitempty"`
 	// Stack labs run the production stack (proxy, app, db, load generator)
 	// and report live traffic. They need python3 in the sandbox image.
-	Stack   bool   `json:"stack,omitempty"`
-	Debrief string `json:"-"`
+	Stack bool `json:"stack,omitempty"`
+	// Community labs come from a spec (labs/community or the generator) and
+	// passed sandbox validation.
+	Community bool `json:"community,omitempty"`
+	// Generated labs were written by the AI generator and passed validation.
+	Generated bool   `json:"generated,omitempty"`
+	Debrief   string `json:"-"`
 	// Setup runs silently before an incident starts. Demo runs visibly in the
 	// learner's terminal.
 	Setup string `json:"-"`
@@ -517,11 +522,12 @@ wait; echo "throttled for: $(awk '/nr_throttled/ {print $2}' /sys/fs/cgroup/cpu.
 	},
 }
 
-// All returns the catalog in display order.
+// All returns the catalog in display order, followed by community and
+// generated labs.
 func All() []Lab {
 	out := make([]Lab, len(catalog))
 	copy(out, catalog)
-	return out
+	return append(out, extras()...)
 }
 
 // legacyIDs maps the original scenario ids to their lab equivalents.
@@ -542,6 +548,11 @@ func Get(id string) (Lab, bool) {
 			return l, true
 		}
 	}
+	for _, l := range extras() {
+		if l.ID == id {
+			return l, true
+		}
+	}
 	return Lab{}, false
 }
 
@@ -551,7 +562,7 @@ const CleanupScript = `for p in /proc/[0-9]*; do
   [ "${p#/proc/}" = "$$" ] && continue
   [ "${p#/proc/}" = 1 ] && continue
   mapfile -d '' args < "$p/cmdline" 2>/dev/null || continue
-  if [[ "${args[*]}" =~ (opt/stack/stack\.py|^lesson-sleeper|opt/(metrics/agent|ledger/ledgerd|spool/spoold|reaper/reaper-svc|cache/launcher|cache/warmer|legacy/httpd)|^spool-worker|^\[kworker/u4:2\]|^reaper-svc|^web-serve) ]]; then
+  if [[ "${args[*]}" =~ (/opt/[a-z0-9-]+/|opt/stack/stack\.py|^lesson-sleeper|opt/(metrics/agent|ledger/ledgerd|spool/spoold|reaper/reaper-svc|cache/launcher|cache/warmer|legacy/httpd)|^spool-worker|^\[kworker/u4:2\]|^reaper-svc|^web-serve) ]]; then
     kill -9 "${p#/proc/}" 2>/dev/null
   fi
 done

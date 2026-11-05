@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { CheckIcon, CircleIcon } from './Icons';
 
@@ -43,9 +43,15 @@ const DIFFICULTY_ORDER = { Beginner: 0, Intermediate: 1, Advanced: 2 };
 
 // Incidents are grouped: starters, single-machine incidents, then the
 // production stack.
-const GROUP_LABELS = ['Start here if you are new to Linux', 'Incidents', 'Production stack: proxy, app, database, live traffic'];
+const GROUP_LABELS = [
+  'Start here if you are new to Linux',
+  'Incidents',
+  'Production stack: proxy, app, database, live traffic',
+  'Community and generated (each one validated in a sandbox)',
+];
 function groupOf(lab) {
   if (lab.starter) return 0;
+  if (lab.community) return 3;
   return lab.stack ? 2 : 1;
 }
 
@@ -63,6 +69,8 @@ export default function LabPanel({
   disabled,
 }) {
   const [confirmGameDay, setConfirmGameDay] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [reload, setReload] = useState(0);
   const [catalog, setCatalog] = useState([]);
   const [progress, setProgress] = useState(readLocal);
   const [tab, setTab] = useState('incident');
@@ -92,7 +100,7 @@ export default function LabPanel({
         setProgress(merged);
       })
       .catch(() => setLoadError('Lab catalog unavailable.'));
-  }, [sessionId, authHeaders, labVersion]);
+  }, [sessionId, authHeaders, labVersion, reload]);
 
   const grouped = useMemo(
     () =>
@@ -213,6 +221,7 @@ export default function LabPanel({
                       <span className="text-[11px] text-ink-muted shrink-0 tabular-nums">{l.minutes} min</span>
                     </div>
                     <div className="text-xs text-ink-muted mt-0.5 line-clamp-2">{l.summary}</div>
+                    {l.generated && <div className="text-[11px] text-accent mt-0.5">AI generated, sandbox validated</div>}
                     <div className="mt-1 text-[11px] text-ink-muted">
                       {l.category} <span aria-hidden="true">/</span> {l.difficulty}
                       {progress[`${l.id}:interview`] && (
@@ -236,6 +245,28 @@ export default function LabPanel({
           );
         })}
       </ul>
+
+      {tab === 'incident' && (
+        <div className="px-4 py-2 border-t border-line">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setGenerating(true)}
+            className="text-xs font-medium text-accent hover:underline disabled:opacity-50"
+          >
+            Generate a new lab with AI
+          </button>
+        </div>
+      )}
+
+      {generating && (
+        <GenerateLab
+          sessionId={sessionId}
+          authHeaders={authHeaders}
+          onClose={() => setGenerating(false)}
+          onPublished={() => setReload((r) => r + 1)}
+        />
+      )}
 
       {pending && (
         <Briefing
@@ -692,5 +723,139 @@ function InlineCode({ text }) {
     ) : (
       <span key={i}>{p}</span>
     ),
+  );
+}
+
+function GenerateLab({ sessionId, authHeaders, onClose, onPublished }) {
+  const [topic, setTopic] = useState('');
+  const [difficulty, setDifficulty] = useState('Intermediate');
+  const [job, setJob] = useState(null);
+  const [error, setError] = useState('');
+  // The parent re-renders every second; keep callbacks in a ref so the poll
+  // timer is not reset on every render.
+  const cb = useRef({ authHeaders, onPublished });
+  cb.current = { authHeaders, onPublished };
+
+  useEffect(() => {
+    if (!job || job.state === 'published' || job.state === 'failed') return undefined;
+    const t = setTimeout(async () => {
+      try {
+        const res = await axios.get(`${API_URL}/api/labs/generate`, {
+          headers: cb.current.authHeaders(),
+          params: { job: job.id },
+        });
+        setJob(res.data);
+        if (res.data.state === 'published') cb.current.onPublished();
+      } catch {
+        setError('Lost track of the generation job.');
+      }
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [job]);
+
+  const start = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      const res = await axios.post(
+        `${API_URL}/api/labs/generate`,
+        { topic, difficulty },
+        { headers: authHeaders(), params: { session_id: sessionId } },
+      );
+      setJob(res.data);
+    } catch (err) {
+      setError(err.response?.data || err.message);
+    }
+  };
+
+  const busy = job && (job.state === 'generating' || job.state === 'validating');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#14181f]/30 p-4" onClick={busy ? undefined : onClose} role="presentation">
+      <div className="panel max-w-lg w-full p-6" role="dialog" aria-modal="true" aria-label="Generate a lab" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold text-ink">Generate a lab</h3>
+        <p className="mt-1 text-sm text-ink-muted">
+          Describe an incident. The AI writes the setup, checks, hints, and a reference fix. Entropy then runs it in a
+          throwaway sandbox and publishes it only if setup breaks the system and the fix repairs it.
+        </p>
+        {!job && (
+          <form onSubmit={start} className="mt-4 space-y-3">
+            <textarea
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              rows={3}
+              maxLength={200}
+              placeholder="For example: a cron-style job that keeps filling the disk, or a service stuck because its lock file was left behind"
+              className="w-full text-sm px-3 py-2 rounded-panel border border-line bg-surface text-ink placeholder:text-ink-muted focus:outline-none focus:border-accent"
+            />
+            <div className="flex items-center justify-between gap-2">
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                className="text-sm px-2 py-1.5 rounded-panel border border-line bg-surface text-ink"
+                aria-label="Difficulty"
+              >
+                <option>Beginner</option>
+                <option>Intermediate</option>
+                <option>Advanced</option>
+              </select>
+              <div className="flex gap-2">
+                <button type="button" onClick={onClose} className="text-sm px-4 py-2 rounded-panel border border-line hover:bg-muted">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={topic.trim().length < 4}
+                  className="text-sm px-4 py-2 rounded-panel bg-accent text-white disabled:opacity-50"
+                >
+                  Generate
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+        {job && (
+          <div className="mt-4 space-y-2 text-sm" aria-live="polite">
+            <ol className="space-y-1.5">
+              {[
+                ['generating', `Writing the lab${job.attempt > 1 ? ` (attempt ${job.attempt})` : ''}`],
+                ['validating', 'Validating in a throwaway sandbox'],
+                ['published', 'Published'],
+              ].map(([state, label]) => {
+                const order = ['generating', 'validating', 'published'];
+                const cur = job.state === 'failed' ? -1 : order.indexOf(job.state);
+                const idx = order.indexOf(state);
+                const done = cur > idx || job.state === 'published';
+                const active = cur === idx && job.state !== 'published';
+                return (
+                  <li key={state} className="flex items-center gap-2">
+                    <span className={done ? 'text-success' : 'text-line'}>{done ? <CheckIcon /> : <CircleIcon />}</span>
+                    <span className={active ? 'text-ink font-medium' : done ? 'text-ink' : 'text-ink-muted'}>{label}</span>
+                    {active && <span className="spinner" aria-hidden="true" />}
+                  </li>
+                );
+              })}
+            </ol>
+            {job.title && <p className="text-ink-muted">{job.title}</p>}
+            {job.state === 'published' && <p className="text-success">It is in the Community and generated group.</p>}
+            {job.state === 'failed' && <p className="text-danger">{job.message}</p>}
+            {job.problems?.length > 0 && (
+              <ul className="text-xs text-ink-muted list-disc pl-5">
+                {job.problems.slice(0, 5).map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            )}
+            {!busy && (
+              <div className="pt-2 flex justify-end">
+                <button type="button" onClick={onClose} className="text-sm px-4 py-2 rounded-panel border border-line hover:bg-muted">
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {error && <p className="mt-3 text-sm text-danger">{String(error)}</p>}
+      </div>
+    </div>
   );
 }

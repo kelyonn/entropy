@@ -62,3 +62,12 @@ func TestNormalizeMode(t *testing.T) {
 		t.Fatal("normalizeMode")
 	}
 }
+
+func TestUniqueLabID(t *testing.T) {
+	if got := uniqueLabID("Paused-Consumer"); got != "gen-paused-consumer" {
+		t.Fatalf("uniqueLabID = %q", got)
+	}
+	if got := uniqueLabID("gen-x"); got != "gen-x" {
+		t.Fatalf("prefix doubled: %q", got)
+	}
+}

@@ -1,9 +1,8 @@
 package labs
 
 import (
+	"context"
 	"os"
-	"os/exec"
-	"strings"
 	"testing"
 	"time"
 )
@@ -69,21 +68,9 @@ done
 sleep 0.5; /opt/web/serve; sleep 0.5`,
 }
 
-func dockerExec(t *testing.T, id, script string) (string, int) {
-	t.Helper()
-	cmd := exec.Command("docker", "exec", id, "/bin/bash", "-c", script)
-	out, err := cmd.CombinedOutput()
-	code := 0
-	if ee, ok := err.(*exec.ExitError); ok {
-		code = ee.ExitCode()
-	} else if err != nil {
-		t.Fatalf("docker exec: %v", err)
-	}
-	return string(out), code
-}
-
-// TestIncidentLabsInDocker runs each incident in a container with the same
-// limits Airlock applies. Enable with ENTROPY_LAB_SMOKE=1.
+// TestIncidentLabsInDocker validates every incident (built-in and
+// community) in a container with Airlock's limits: broken after setup, fixed
+// by the reference fix. Enable with ENTROPY_LAB_SMOKE=1.
 func TestIncidentLabsInDocker(t *testing.T) {
 	if os.Getenv("ENTROPY_LAB_SMOKE") != "1" {
 		t.Skip("set ENTROPY_LAB_SMOKE=1 to run against Docker")
@@ -92,6 +79,13 @@ func TestIncidentLabsInDocker(t *testing.T) {
 	image := os.Getenv("ENTROPY_LAB_IMAGE")
 	if image == "" {
 		image = "ubuntu:22.04"
+	}
+	factory := NewDockerRunnerFactory(image, runtime)
+	community := map[string]Spec{}
+	if specs, err := CommunitySpecs(); err == nil {
+		for _, s := range specs {
+			community[s.ID] = s
+		}
 	}
 	for _, l := range All() {
 		if l.Kind != KindIncident {
@@ -102,50 +96,22 @@ func TestIncidentLabsInDocker(t *testing.T) {
 			continue
 		}
 		l := l
+		fix, settle := referenceFixes[l.ID], 4*time.Second
+		if spec, ok := community[l.ID]; ok {
+			fix = spec.ReferenceFix
+			if spec.SettleSeconds > 0 {
+				settle = time.Duration(spec.SettleSeconds) * time.Second
+			}
+		}
 		t.Run(l.ID, func(t *testing.T) {
-			args := []string{"run", "-d", "--rm"}
-			if runtime != "" {
-				args = append(args, "--runtime", runtime)
+			if fix == "" {
+				t.Fatalf("no reference fix for %s", l.ID)
 			}
-			out, err := exec.Command("docker", append(args,
-				"--memory", "256m", "--memory-swap", "256m", "--cpus", "0.5", "--pids-limit", "100",
-				"--network", "none", "--cap-drop", "ALL",
-				"--cap-add", "CHOWN", "--cap-add", "SETUID", "--cap-add", "SETGID",
-				"--ulimit", "nofile=1024:2048",
-				"--security-opt", "no-new-privileges:true",
-				"--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
-				"--tmpfs", "/var/log:rw,noexec,nosuid,size=64m",
-				"-t", "-i", image, "/bin/bash")...).CombinedOutput()
-			if err != nil {
-				t.Fatalf("docker run: %v %s", err, out)
-			}
-			id := strings.TrimSpace(string(out))
-			defer exec.Command("docker", "rm", "-f", id).Run()
-
-			if _, code := dockerExec(t, id, "mkdir -p /root/.entropy"); code != 0 {
-				t.Fatal("state dir")
-			}
-			if out, code := dockerExec(t, id, l.Setup); code != 0 {
-				t.Fatalf("setup exit %d: %s", code, out)
-			}
-			time.Sleep(3 * time.Second)
-			out1, _ := dockerExec(t, id, CheckScript(l))
-			before := Evaluate(l, out1, nil)
-			if AllMet(l, before) {
-				t.Fatalf("objectives already met after setup: %v\n%s", before, out1)
-			}
-			for id, ok := range before {
-				t.Logf("before %s=%v", id, ok)
-			}
-			if out, code := dockerExec(t, id, referenceFixes[l.ID]); code != 0 {
-				t.Logf("fix exit %d: %s", code, out)
-			}
-			time.Sleep(4 * time.Second)
-			out2, _ := dockerExec(t, id, CheckScript(l))
-			// Each line of the reference fix counts as a learner command.
-			after := Evaluate(l, out2, strings.Split(referenceFixes[l.ID], "\n"))
-			if !AllMet(l, after) {
-				t.Fatalf("reference fix did not satisfy objectives: %v\n%s", after, out2)
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer cancel()
+			r := ValidateInSandbox(ctx, factory, l, fix, settle)
+			if !r.OK {
+				t.Fatalf("validation failed: %v\nafter setup: %v\nafter fix: %v\nsetup output: %s", r.Problems, r.AfterSetup, r.AfterFix, r.SetupOutput)
 			}
 		})
 	}
