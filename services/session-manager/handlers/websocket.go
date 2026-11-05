@@ -134,6 +134,9 @@ type conn struct {
 	// the resulting signal exit is not treated as a crash.
 	interrupted atomic.Bool
 
+	// procTreeOn is set while the learner has the process view open.
+	procTreeOn atomic.Bool
+
 	commandsRun   atomic.Int64
 	crashes       atomic.Int64
 	labsCompleted atomic.Int64
@@ -649,6 +652,8 @@ func (h *WebSocketHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	go c.runProcTree(statsDone)
+
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
@@ -695,6 +700,12 @@ func (h *WebSocketHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			default:
 				c.send(ws.TypeError, map[string]string{"message": "command queue full, try again"})
 			}
+		case TypeProcTree:
+			var p struct {
+				On bool `json:"on"`
+			}
+			_ = json.Unmarshal(env.Payload, &p)
+			c.procTreeOn.Store(p.On)
 		case ws.TypeInterrupt:
 			c.interrupted.Store(true)
 			go func() {

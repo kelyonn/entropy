@@ -209,6 +209,9 @@ export default function App() {
     labVersion,
     sessionSummary,
     lastError,
+    procTree,
+    setProcTreeOn,
+    crash,
     subscribeTerminal,
     sendCommand,
     interrupt,
@@ -380,7 +383,16 @@ export default function App() {
               disabled={inputDisabled}
             />
           </div>
-          <SystemView health={health} event={vizEvent} samples={samples} latest={latest} />
+          <SystemView
+            health={health}
+            event={vizEvent}
+            samples={samples}
+            latest={latest}
+            procTree={procTree}
+            onProcTree={setProcTreeOn}
+            crash={crash}
+            connected={connected && !!startedAt}
+          />
           {user && (
             <SessionHistory
               sessions={history}

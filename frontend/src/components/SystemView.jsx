@@ -1,7 +1,8 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import Sparkline from './Sparkline';
+import ProcessTree from './ProcessTree';
 
 const PID_LIMIT = 100;
 const COLORS = {
@@ -111,7 +112,13 @@ const EVENT_LABEL = {
   timeout: 'timeout',
 };
 
-export default function SystemView({ health = 'healthy', event, samples, latest }) {
+export default function SystemView({ health = 'healthy', event, samples, latest, procTree, onProcTree, crash, connected }) {
+  const [view, setView] = useState('resources');
+  useEffect(() => {
+    if (!connected || !onProcTree) return undefined;
+    onProcTree(view === 'processes');
+    return () => onProcTree(false);
+  }, [view, connected, onProcTree]);
   const cpu = latest.cpu ?? 0;
   const memory = latest.memory ?? 0;
   const pids = latest.pids ?? 0;
@@ -137,13 +144,39 @@ export default function SystemView({ health = 'healthy', event, samples, latest 
   return (
     <section className="panel">
       <header className="flex items-center justify-between px-4 pt-3">
-        <h2 className="text-sm font-semibold text-ink">System view</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-semibold text-ink">System view</h2>
+          <div className="flex gap-1 text-[11px]" role="tablist">
+            {[
+              ['resources', 'Resources'],
+              ['processes', 'Processes'],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={view === id}
+                onClick={() => setView(id)}
+                className={`px-2 py-0.5 rounded-[4px] border ${
+                  view === id ? 'border-accent text-accent bg-accent-soft' : 'border-transparent text-ink-muted hover:text-ink'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <span className={`text-xs font-medium status-fade ${healthColor}`}>
           {healthText}
           {event && EVENT_LABEL[event] ? ` (${EVENT_LABEL[event]})` : ''}
         </span>
       </header>
-      <div className="relative h-40 mx-4 mt-2 rounded-panel bg-muted overflow-hidden">
+      {view === 'processes' && (
+        <div className="px-4 pt-2 pb-3">
+          <ProcessTree snapshot={procTree} crash={crash} />
+        </div>
+      )}
+      <div className={`relative h-40 mx-4 mt-2 rounded-panel bg-muted overflow-hidden ${view === 'processes' ? 'hidden' : ''}`}>
         <div className="absolute inset-x-0 bottom-1.5 z-10 grid grid-cols-3 text-center text-[10px] font-mono text-ink-muted pointer-events-none">
           <span>cpu</span>
           <span>mem</span>
@@ -156,6 +189,7 @@ export default function SystemView({ health = 'healthy', event, samples, latest 
         </Canvas>
       </div>
       <div className="grid grid-cols-3 gap-px bg-line mt-3 border-t border-line rounded-b-panel overflow-hidden">
+        {/* resource gauges stay visible in both views */}
         {stats.map((s) => {
           const color = s.pct >= 85 ? 'var(--danger)' : s.pct >= 60 ? 'var(--warning)' : 'var(--accent)';
           return (
